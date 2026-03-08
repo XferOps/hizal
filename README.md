@@ -39,7 +39,7 @@ AI coding tools struggle in large codebases not because models are incapable, bu
 | `read_context` | Get specific context chunk with version info |
 | `update_context` | Update existing chunk (creates new version) |
 | `get_context_versions` | View version history of a chunk |
-| `compact_context` | Summarize and compress |
+| `compact_context` | Fetch chunks for agent-side compaction |
 | `review_context` | Quality review (usefulness, correctness) |
 
 ## Research Sources

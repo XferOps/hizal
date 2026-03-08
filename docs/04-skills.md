@@ -131,21 +131,24 @@ Context compaction resets the agent's state while preserving learning. It's the 
 1. IDENTIFY what you've learned
    └─> Query the topic(s) you've been working on
    
-2. COMPACT
-   └─> Call compact_context with query + purpose
+2. FETCH all related chunks
+   └─> Call compact_context with query to get all matching chunks in one call
    
-3. REVIEW summary
-   └─> Verify it captures key points
-   └─> Note any gaps for future work
+3. SUMMARIZE (agent-side — you do this, not the server)
+   └─> Produce a structured summary:
+       - What: one-liner description
+       - Files: key file paths + line numbers
+       - Gotchas: warnings from all chunks
+       - Related: connected context areas
+       - Gaps: what's still unknown
    
-4. DECIDE next step:
-   a) Store summary for future agents
-      └─> Write new context chunk with compacted form
-   b) Start fresh session with summary as seed
-      └─> Begin new work with compressed context
+4. WRITE compacted summary back
+   └─> Call write_context with the summary as a new chunk
+   └─> Use a descriptive query_key (e.g., "auth-compacted-2026-03")
    
-5. DOCUMENT gaps
-   └─> Write context about what's still unknown
+5. DECIDE next step:
+   a) Start fresh session with summary as seed
+   b) Continue working with compressed context
 ```
 
 ### Context Compaction Checklist
@@ -161,33 +164,24 @@ Before compacting, confirm:
 ```
 Agent has been working for 20 minutes on auth refactoring.
 
-1. search_context(query: "auth session")
-   └─> Found 8 chunks about auth
+1. compact_context(query: "auth session")
+   └─> Returns 8 raw chunks about auth
 
-2. compact_context(
-     query: "auth session",
-     purpose: "continuation - starting fresh session"
-   )
+2. Agent summarizes (in its own context):
+   "Session handling via Warden with database strategy.
+    Keys: session_key, user_id. Expires 30d.
+    Files: app/models/user.rb (120-180), app/warden/strategies/db.rb (1-50)
+    Gotchas: No remember_token, Cleanup daily 3am UTC
+    Related: api-auth
+    Gaps: OAuth2 support undocumented"
 
-3. Response:
-   {
-     "summary": {
-       "what": "Session handling via Warden with database strategy.
-         Keys: session_key, user_id. Expires 30d.",
-       "files": [
-         {"path": "app/models/user.rb", "lines": [120,180]},
-         {"path": "app/warden/strategies/db.rb", "lines": [1,50]}
-       ],
-       "gotchas": ["No remember_token", "Cleanup daily 3am UTC"],
-       "related": ["api-auth"]
-     }
-   }
-
-4. Write new context for future agents:
+3. Write compacted summary back:
    write_context(
-     query_key: "auth-session-refactor-2026-03",
-     title: "Session refactoring progress - Mar 2026",
-     content: "Research summary from refactoring work... (summary)"
+     query_key: "auth-session-compacted-2026-03",
+     title: "Auth session — compacted summary (Mar 2026)",
+     content: "Session handling via Warden with database strategy...",
+     gotchas: ["No remember_token", "Cleanup daily 3am UTC"],
+     related: ["api-auth"]
    )
 ```
 

@@ -57,7 +57,7 @@
 POST /v1/context          # Write context
 GET  /v1/context/:id      # Read context
 GET  /v1/context/search   # Search contexts
-POST /v1/context/compact  # Compact contexts
+GET  /v1/context/compact  # Fetch chunks for agent-side compaction
 DELETE /v1/context/:id    # Delete context
 ```
 
@@ -167,7 +167,8 @@ CREATE TABLE context_reviews (
 ```
 
 **Search:**
-- Full-text search using PostgreSQL `tsvector` or pgvector for semantic search
+- Semantic search using pgvector (embeddings stored alongside chunks)
+- Full-text search via `tsvector` as fallback/complement
 
 ### 3. MCP Server
 
@@ -180,7 +181,7 @@ CREATE TABLE context_reviews (
 | `write_context` | `{query_key, title, content, source?, gotchas?}` | `{id, created_at}` |
 | `search_context` | `{query, limit?}` | `[{id, title, content, score}]` |
 | `read_context` | `{id}` | `{id, query_key, title, content, ...}` |
-| `compact_context` | `{query, purpose}` | `{summary: {...}}` |
+| `compact_context` | `{query, limit?}` | `{chunks: [...], total}` |
 | `review_context` | `{chunk_id, task, usefulness, correctness, action}` | `{id, created_at}` |
 
 ---
@@ -225,27 +226,28 @@ Returns: [{id, title, content, score}, ...]
 
 ### Compact Flow
 
+**Important:** No server-side AI inference. The server fetches matching chunks; the agent does all summarization client-side.
+
 ```
 Agent
    │
    ▼
-compact_context({query: "auth", purpose: "onboarding new agent"})
+compact_context({query: "auth", limit: 50})
+   │
+   ▼
+API Key validated → Tenant identified → Permissions checked
    │
    ▼
 Find all chunks matching "auth"
    │
    ▼
-Generate summary:
-  - What: one-liner description
-  - Files: key file paths + lines
-  - Gotchas: warnings from all chunks
-  - Related: connected context queries
+Returns: {chunks: [...], total: N}
    │
    ▼
-Store as new context version (optional)
+Agent summarizes chunks locally (in its own context window)
    │
    ▼
-Returns: {summary: {...}}
+Agent writes compacted summary back via write_context()
 ```
 
 ---
@@ -316,7 +318,8 @@ Authorization: Bearer dk_live_xxxxx_xxxxxxxx
 
 ## Open Questions
 
-- [ ] Vector search vs. full-text? (pgvector adds dependency)
+- [x] Vector search vs. full-text?
+  - **Answer:** pgvector from day one for semantic search. Full-text search via tsvector as complement.
 - [x] How to handle context conflicts?
   - **Approach:** Server-side AI workflow audits context chunks for inconsistencies and flags them. Review via separate high-permission skills.
 - [ ] Should we support read ACLs per chunk?

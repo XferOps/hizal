@@ -168,7 +168,9 @@ search_context(
 
 ## Tool: compact_context
 
-**Purpose:** Summarize all context matching a query into a compressed form
+**Purpose:** Fetch all context chunks matching a query in a single call, optimized for agent-side compaction
+
+**How it works:** This tool does NOT perform summarization. It returns the raw matching chunks so the agent can summarize them client-side using its own reasoning. The agent then writes the compacted summary back via `write_context`. This keeps all LLM inference on the client — no server-side AI costs or latency.
 
 **When to use:**
 - Before entering the "dumb zone" (after 15-20 min of work)
@@ -180,42 +182,55 @@ search_context(
 ```json
 {
   "query": "string",        // what to compact
-  "purpose": "string",      // why (e.g., "onboarding", "continuation")
-  "store_as_new": true      // optional: save summary as new chunk
+  "limit": 50               // optional: max chunks to return (default: 50)
 }
 ```
 
 **Output:**
 ```json
 {
-  "summary": {
-    "what": "Session-based auth using Warden with database strategy. Keys: user_id, session_id. Expires after 30 days.",
-    "files": [
-      {"path": "app/models/user.rb", "lines": [120, 180], "relevance": "primary"},
-      {"path": "app/warden/strategies/database.rb", "lines": [1, 50], "relevance": "core"},
-      {"path": "config/initializers/warden.rb", "lines": [10, 30], "relevance": "config"}
-    ],
-    "gotchas": [
-      "No remember_token support - users must log in each visit",
-      "Session cleanup runs daily at 3am UTC"
-    ],
-    "related": ["api-auth", "payment-tokens"],
-    "gaps": [
-      "No OAuth2 support documented",
-      "Password reset flow unclear"
-    ]
-  },
-  "compacted_chunks": ["ctx_abc123", "ctx_def456", "ctx_ghi789"],
-  "created_at": "2026-03-08T15:00:00Z"
+  "chunks": [
+    {
+      "id": "ctx_abc123",
+      "query_key": "auth-system",
+      "title": "Session-based auth with Warden",
+      "content": "Auth uses Warden with database strategy...",
+      "source_file": "app/models/user.rb",
+      "source_lines": [120, 180],
+      "gotchas": ["No remember_token support - users must log in each visit"],
+      "related": ["api-auth", "payment-tokens"],
+      "version": 2,
+      "created_at": "2026-03-08T12:00:00Z",
+      "updated_at": "2026-03-08T14:30:00Z"
+    },
+    {
+      "id": "ctx_def456",
+      "query_key": "auth-system",
+      "title": "Warden strategy configuration",
+      "content": "Database strategy configured in...",
+      "source_file": "config/initializers/warden.rb",
+      "source_lines": [10, 30],
+      "gotchas": ["Session cleanup runs daily at 3am UTC"],
+      "related": ["auth-system"],
+      "version": 1,
+      "created_at": "2026-03-08T13:00:00Z",
+      "updated_at": "2026-03-08T13:00:00Z"
+    }
+  ],
+  "total": 2
 }
 ```
+
+**Expected agent workflow after calling this tool:**
+1. Call `compact_context` to fetch all related chunks
+2. Agent summarizes the chunks in its own context (what, files, gotchas, gaps, related)
+3. Agent writes the compacted summary back via `write_context` with a descriptive `query_key`
 
 **Example Usage:**
 ```
 compact_context(
   query: "auth system",
-  purpose: "onboarding future agent to auth subsystem",
-  store_as_new: true
+  limit: 20
 )
 ```
 

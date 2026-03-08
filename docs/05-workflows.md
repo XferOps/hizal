@@ -195,6 +195,8 @@ Context Usage
 
 ### Compaction Flow
 
+**All summarization happens agent-side.** The server only fetches matching chunks.
+
 ```
                     ┌─────────────────────┐
                     │  Working on task    │
@@ -203,32 +205,35 @@ Context Usage
                                │
                                ▼
                     ┌─────────────────────┐
-                    │  search_context     │
-                    │  query: "[topic]"   │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
                     │  compact_context    │
-                    │  query, purpose     │
+                    │  query: "[topic]"   │
+                    │  (fetches chunks)   │
                     └──────────┬──────────┘
                                │
                                ▼
                     ┌─────────────────────┐
-                    │  Review summary     │
-                    │  - What did we      │
-                    │    learn?           │
-                    │  - Files?           │
+                    │  Agent summarizes   │
+                    │  (client-side):     │
+                    │  - What learned?    │
+                    │  - Key files?       │
                     │  - Gotchas?         │
+                    │  - Gaps?            │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │  write_context()    │
+                    │  (store compacted   │
+                    │   summary)          │
                     └──────────┬──────────┘
                                │
                                ▼
                     ┌─────────────────────┐
                     │  Decision:          │
-                    │  a) Store for       │
-                    │     future agents   │
-                    │  b) Start fresh     │
+                    │  a) Start fresh     │
                     │     session         │
+                    │  b) Continue with   │
+                    │     compressed ctx  │
                     └─────────────────────┘
 ```
 
