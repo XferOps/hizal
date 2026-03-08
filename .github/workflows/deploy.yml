@@ -1,0 +1,67 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: 498228255317.dkr.ecr.us-east-1.amazonaws.com/contextor-api
+  ECS_CLUSTER: contextor-cluster
+  ECS_SERVICE: contextor-api
+  TASK_FAMILY: contextor-api
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, push
+        id: build
+        run: |
+          IMAGE_TAG="${{ github.sha }}"
+          docker build --platform linux/amd64 -t $ECR_REPO:$IMAGE_TAG -t $ECR_REPO:latest .
+          docker push $ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REPO:latest
+          echo "image=$ECR_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update ECS task definition
+        id: task-def
+        run: |
+          # Get current task def
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_FAMILY --query taskDefinition)
+          
+          # Update image in container definition
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "${{ steps.build.outputs.image }}" \
+            '.containerDefinitions[0].image = $IMAGE | 
+             del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+          
+          # Register new revision
+          NEW_ARN=$(aws ecs register-task-definition --cli-input-json "$NEW_TASK_DEF" --query taskDefinition.taskDefinitionArn --output text)
+          echo "task-def-arn=$NEW_ARN" >> $GITHUB_OUTPUT
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service $ECS_SERVICE \
+            --task-definition ${{ steps.task-def.outputs.task-def-arn }} \
+            --force-new-deployment
+
+      - name: Wait for deployment
+        run: |
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
+          echo "✅ Deployment complete"
