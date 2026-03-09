@@ -59,6 +59,7 @@ jobs:
             --cluster $ECS_CLUSTER \
             --service $ECS_SERVICE \
             --task-definition ${{ steps.task-def.outputs.task-def-arn }} \
+            --desired-count 1 \
             --force-new-deployment
 
       - name: Wait for deployment
