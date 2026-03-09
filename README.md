@@ -50,3 +50,49 @@ AI coding tools struggle in large codebases not because models are incapable, bu
 ## Status
 
 **Researching / Designing** — Defining the product before implementation
+
+## Local Development
+
+Prerequisites:
+
+- Go 1.23+
+- Docker (for Postgres + pgvector)
+
+Configure env:
+
+```bash
+cp .env.example .env
+```
+
+Use this database URL in `.env` (matches `docker-compose.yml`):
+
+```bash
+DATABASE_URL=postgres://user:password@localhost:5434/winnow?sslmode=disable
+```
+
+Start local dependencies and app:
+
+```bash
+docker compose up -d
+make migrate-up
+make seed
+make run
+```
+
+Verify the server:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Notes:
+
+- `make migrate-up` and `make seed` work even if `migrate`/`psql` are not installed locally (Docker fallbacks are built in).
+- If you changed DB settings and have an old Postgres volume, reset it:
+
+```bash
+docker compose down -v
+docker compose up -d
+make migrate-up
+make seed
+```
