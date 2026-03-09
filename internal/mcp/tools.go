@@ -335,12 +335,17 @@ func (t *Tools) ReadContext(ctx context.Context, projectID, id string) (*ReadCon
 	`, id, projectID)
 
 	var (
-		cid, queryKey, title, sourceFile string
+		cid, queryKey, title string
+		sourceFile           *string
 		contentB, sourceLinesB, gotchasB, relatedB []byte
 		createdAt, updatedAt time.Time
 	)
 	if err := row.Scan(&cid, &queryKey, &title, &contentB, &sourceFile, &sourceLinesB, &gotchasB, &relatedB, &createdAt, &updatedAt); err != nil {
 		return nil, fmt.Errorf("chunk not found: %w", err)
+	}
+	sf := ""
+	if sourceFile != nil {
+		sf = *sourceFile
 	}
 
 	// Fetch version count for current version
@@ -371,7 +376,7 @@ func (t *Tools) ReadContext(ctx context.Context, projectID, id string) (*ReadCon
 			QueryKey:    queryKey,
 			Title:       title,
 			Content:     decodeContent(contentB),
-			SourceFile:  sourceFile,
+			SourceFile:  sf,
 			SourceLines: decodeSourceLines(sourceLinesB),
 			Gotchas:     decodeStringSlice(gotchasB),
 			Related:     decodeStringSlice(relatedB),
@@ -553,7 +558,8 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 	chunks := []ChunkResult{}
 	for rows.Next() {
 		var (
-			id, queryKey, title, sourceFile string
+			id, queryKey, title string
+			sourceFile          *string
 			contentB, sourceLinesB, gotchasB, relatedB []byte
 			score                                       float64
 			createdAt, updatedAt                        time.Time
@@ -561,12 +567,16 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 		if err := rows.Scan(&id, &queryKey, &title, &contentB, &sourceFile, &sourceLinesB, &gotchasB, &relatedB, &score, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		csf := ""
+		if sourceFile != nil {
+			csf = *sourceFile
+		}
 		chunks = append(chunks, ChunkResult{
 			ID:          id,
 			QueryKey:    queryKey,
 			Title:       title,
 			Content:     decodeContent(contentB),
-			SourceFile:  sourceFile,
+			SourceFile:  csf,
 			SourceLines: decodeSourceLines(sourceLinesB),
 			Gotchas:     decodeStringSlice(gotchasB),
 			Related:     decodeStringSlice(relatedB),
