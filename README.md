@@ -8,7 +8,7 @@
 
 ---
 
-## Why Winnow?
+## The Problem
 
 AI coding agents struggle in large codebases not because models are dumb — it's because context is poorly managed. Winnow fixes this:
 
@@ -70,7 +70,7 @@ That's it. Your agent now has persistent, searchable memory.
 
 ---
 
-## MCP Tools
+**Researching / Designing** — Defining the product before implementation
 
 All tools require `Authorization: Bearer <key>` header (configured once in your MCP client).
 
@@ -147,6 +147,6 @@ docker compose up
 
 ---
 
-## Status
+## Development
 
 **v0.1** — Production API live at `winnow-api.xferops.dev`. Self-service key management UI coming in v0.2.

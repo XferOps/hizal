@@ -41,7 +41,7 @@ Add to your MCP config (`~/.cursor/mcp.json`):
 dk_live_{org}_{random}   — production
 dk_test_{org}_{random}   — testing
 ```
-Never hardcode API keys. Use env vars: `WINNOW_API_KEY`.
+dNever hardcode API keys. Use env vars: `WINNOW_API_KEY`.
 
 ### Go API Patterns
 ```go
@@ -56,14 +56,14 @@ result, err := client.SearchContext(ctx, &winnow.SearchRequest{
 
 ### REST Endpoints
 ```
-POST   /api/context          — write_context
-GET    /api/context/:id      — read_context
-PUT    /api/context/:id      — update_context
-DELETE /api/context/:id      — delete_context
+POST   /api/context              — write_context
+GET    /api/context/:id          — read_context
+PUT    /api/context/:id          — update_context
+DELETE /api/context/:id          — delete_context
 GET    /api/context/:id/versions — get_context_versions
-POST   /api/context/search   — search_context
-POST   /api/context/compact  — compact_context
-POST   /api/context/:id/review — review_context
+POST   /api/context/search       — search_context
+POST   /api/context/compact      — compact_context
+POST   /api/context/:id/review   — review_context
 ```
 
 ## Workflow Rules
@@ -98,7 +98,7 @@ POST   /api/context/:id/review — review_context
 
 ### Research a topic
 ```
-1. search_context(query="<topic>", limit=5)
+d1. search_context(query="<topic>", limit=5)
 2. read_context(<top result IDs>)
 3. <gather new info if needed>
 4. write_context(<new findings>)
