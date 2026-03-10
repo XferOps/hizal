@@ -25,7 +25,10 @@ Search for all chunks related to the topic:
 ```
 search_context(query="<topic>", projectId="<project_id>", limit=20)
 ```
-Review results. Select chunks that are overlapping, redundant, or outdated.
+Review results. Select chunks that are:
+- Overlapping or redundant
+- Older versions superseded by newer work
+- Too small to be useful independently
 
 ### Step 2 — Fetch full content
 Retrieve the complete content of each selected chunk:
@@ -52,8 +55,11 @@ write_context(
 
 ### Step 5 — Version or delete originals
 For each original chunk, either:
-- **Update** with a deprecation note pointing to the new chunk
-- **Delete** if fully captured in the summary:
+- **Update** with a deprecation note pointing to the new chunk:
+  ```
+  update_context(id="<old_id>", content="[SUPERSEDED] See chunk <new_id>")
+  ```
+- Or **delete** if they're fully captured in the summary:
   ```
   delete_context(id="<old_id>", projectId="<project_id>")
   ```

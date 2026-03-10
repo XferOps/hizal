@@ -70,5 +70,6 @@ write_context(
 
 ## Notes
 - This skill is read-heavy — writing is optional and only if synthesis adds new value
+- Focus on `tags` and `source` when scanning results to prioritize relevance
 - If Winnow has sparse context, fall back to reading README, docs/, and git log
 - For recurring sessions: search for chunks tagged with the current sprint or milestone

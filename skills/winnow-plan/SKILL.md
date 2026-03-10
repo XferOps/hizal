@@ -27,7 +27,10 @@ Search for prior decisions, constraints, and related work:
 search_context(query="<task topic>", projectId="<project_id>", limit=5)
 search_context(query="<related feature or system>", projectId="<project_id>", limit=5)
 ```
-Note any constraints, patterns, or prior attempts.
+Read the most relevant chunks in full. Note any:
+- Constraints or explicit "don't do X" decisions
+- Patterns and conventions to follow
+- Prior attempts or related implementations
 
 ### Step 2 — Structure the plan
 Draft the plan with clear sections:
@@ -67,6 +70,7 @@ update_context(
   projectId="<project_id>"
 )
 ```
+Use `get_context_versions` to review the planning history if needed.
 
 ## Notes
 - Plans should be living documents — update them as work progresses

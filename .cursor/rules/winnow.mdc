@@ -6,9 +6,10 @@ globs: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.md"]
 # Winnow Context Management Rules
 
 ## What is Winnow?
-Winnow is a semantic context store for AI agents. It stores, searches, and versions knowledge chunks using vector embeddings.
+Winnow is a semantic context store for AI agents. It stores, searches, and versions knowledge chunks using vector embeddings. Use it to persist findings, plans, and decisions so they survive across sessions.
 
 ## MCP Configuration
+Add to your MCP config (`~/.cursor/mcp.json`):
 ```json
 {
   "mcpServers": {
@@ -29,7 +30,7 @@ Winnow is a semantic context store for AI agents. It stores, searches, and versi
 | `write_context` | Store a new chunk with embedding |
 | `update_context` | Update a chunk (creates new version) |
 | `get_context_versions` | View version history of a chunk |
-| `compact_context` | Bulk-fetch chunks for summarization |
+| `compact_context` | Fetch many chunks for summarization |
 | `review_context` | Rate a chunk's quality (1-5) |
 | `delete_context` | Remove a chunk |
 
@@ -40,10 +41,12 @@ Winnow is a semantic context store for AI agents. It stores, searches, and versi
 dk_live_{org}_{random}   — production
 dk_test_{org}_{random}   — testing
 ```
-Never hardcode. Use `WINNOW_API_KEY` env var.
+dNever hardcode API keys. Use env vars: `WINNOW_API_KEY`.
 
-### Go API Pattern
+### Go API Patterns
 ```go
+// Always pass projectID from config, never hardcode
+ctx := context.Background()
 result, err := client.SearchContext(ctx, &winnow.SearchRequest{
     ProjectID: cfg.ProjectID,
     Query:     "search query",
@@ -66,41 +69,58 @@ POST   /api/context/:id/review   — review_context
 ## Workflow Rules
 
 ### Before writing new context
-1. ALWAYS `search_context` first
-2. If relevant chunk exists, `update_context` instead of creating duplicate
-3. One concept per chunk
+1. ALWAYS `search_context` first with the topic
+2. If a relevant chunk exists, `update_context` instead of creating a duplicate
+3. One concept per chunk — don't pack unrelated topics together
 
 ### Tagging conventions
 ```
-["research", "<topic>"]              — research findings
-["plan", "<feature>", "<milestone>"] — plans
-["decision", "<area>"]               — architectural decisions
-["onboarding", "overview"]           — overview docs
-["compacted", "<topic>"]             — merged chunks
-["convention", "<area>"]             — coding standards
+["research", "<topic>"]        — research findings
+["plan", "<feature>", "<milestone>"]  — plans
+["decision", "<area>"]         — architectural decisions
+["onboarding", "overview"]     — onboarding/overview docs
+["compacted", "<topic>"]       — merged/summarized chunks
+["convention", "<area>"]       — coding standards, patterns
 ```
 
-### Chunk quality
-- Size: 100–600 words
-- Tags: minimum 2
-- Source: always include URL or file path when available
+### Chunk quality guidelines
+- **Size:** 100–600 words per chunk
+- **Focus:** One concept, one decision, one research finding
+- **Source:** Always include source URL or file path when available
+- **Tags:** Minimum 2 tags — topic + type
+
+### Context hygiene
+- Review chunks periodically (`winnow-review` workflow)
+- Compact related chunks after sprints (`winnow-compact` workflow)
+- Delete superseded chunks — don't let the store go stale
 
 ## Workflow Shortcuts
 
 ### Research a topic
 ```
-search_context → read top results → gather new info → write_context
+d1. search_context(query="<topic>", limit=5)
+2. read_context(<top result IDs>)
+3. <gather new info if needed>
+4. write_context(<new findings>)
 ```
 
 ### Start a task
 ```
-search_context(topic) → search_context(conventions) → plan → write_context(plan)
+1. search_context(query="<task area>", limit=5)
+2. search_context(query="conventions patterns", limit=3)
+3. Build mental model from results
+4. Plan the work, save plan with write_context
 ```
 
 ### End of session
 ```
-write_context(session summary, tags=["session", date, feature])
+1. write_context(<summary of what was done>)
+2. Tag with session date and feature area
 ```
 
 ## Testing
-Use `dk_test_*` keys. Never use production keys in tests.
+Use `dk_test_*` keys against staging:
+```
+https://winnow-api.xferops.dev  (shared staging)
+```
+Never use production keys in tests.
