@@ -23,7 +23,6 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	r.Get("/health", healthHandler)
 
-	// Bootstrap: create API key (no auth required)
 	var h *Handlers
 	var mcpServer *mcp.Server
 	if pool != nil {
@@ -31,15 +30,59 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		h = NewHandlers(mcpServer.Tools(), pool)
 	}
 
-	r.Post("/v1/keys", func(w http.ResponseWriter, r *http.Request) {
-		if h == nil {
-			writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
-			return
-		}
-		h.CreateAPIKey(w, r)
+	authH := NewAuthHandlers(pool)
+	orgH := NewOrgHandlers(pool)
+	projH := NewProjectHandlers(pool)
+	keyH := NewKeyHandlers(pool)
+
+	// ── Auth routes (no auth required for register/login) ──────────────────
+	r.Route("/v1/auth", func(r chi.Router) {
+		r.Post("/register", authH.Register)
+		r.Post("/login", authH.Login)
+		r.With(JWTAuth()).Get("/me", authH.Me)
 	})
 
-	// MCP JSON-RPC endpoint (requires auth)
+	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
+	r.Post("/v1/keys", func(w http.ResponseWriter, r *http.Request) {
+		// If JWT present, route to new key handler; otherwise legacy bootstrap
+		if _, err := ParseJWT(extractBearer(r)); err == nil {
+			// JWT path: inject user into context then call new handler
+			claims, _ := ParseJWT(extractBearer(r))
+			user := JWTUser{ID: claims.UserID, Email: claims.Email}
+			keyH.CreateKey(w, r.WithContext(withJWTUser(r.Context(), user)))
+		} else {
+			if h == nil {
+				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+				return
+			}
+			h.CreateAPIKey(w, r)
+		}
+	})
+
+	// ── JWT-protected routes ────────────────────────────────────────────────
+	r.Group(func(r chi.Router) {
+		r.Use(JWTAuth())
+
+		// Orgs
+		r.Post("/v1/orgs", orgH.CreateOrg)
+		r.Get("/v1/orgs", orgH.ListOrgs)
+		r.Get("/v1/orgs/{id}", orgH.GetOrg)
+		r.Patch("/v1/orgs/{id}", orgH.UpdateOrg)
+		r.Post("/v1/orgs/{id}/members", orgH.InviteMember)
+		r.Delete("/v1/orgs/{id}/members/{userId}", orgH.RemoveMember)
+		r.Patch("/v1/orgs/{id}/members/{userId}", orgH.UpdateMemberRole)
+
+		// Projects
+		r.Post("/v1/orgs/{id}/projects", projH.CreateProject)
+		r.Get("/v1/orgs/{id}/projects", projH.ListProjects)
+		r.Patch("/v1/projects/{id}", projH.UpdateProject)
+
+		// API keys
+		r.Get("/v1/keys", keyH.ListKeys)
+		r.Delete("/v1/keys/{id}", keyH.DeleteKey)
+	})
+
+	// MCP JSON-RPC endpoint (requires API key auth)
 	r.With(APIKeyAuth(pool)).Post("/mcp", func(w http.ResponseWriter, r *http.Request) {
 		if mcpServer == nil {
 			writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
@@ -48,7 +91,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		mcpServer.ServeHTTP(w, r)
 	})
 
-	// REST API (requires auth)
+	// REST API (requires API key auth)
 	r.Route("/v1/context", func(r chi.Router) {
 		r.Use(APIKeyAuth(pool))
 
@@ -122,4 +165,12 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"status":  "ok",
 		"version": version,
 	})
+}
+
+func extractBearer(r *http.Request) string {
+	h := r.Header.Get("Authorization")
+	if len(h) > 7 && h[:7] == "Bearer " {
+		return h[7:]
+	}
+	return ""
 }
