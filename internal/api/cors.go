@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	corsAllowHeaders = "Authorization, Content-Type, X-Project-ID"
-	corsAllowMethods = "GET, POST, PATCH, DELETE, OPTIONS"
+	corsAllowHeaders     = "Authorization, Content-Type, X-Project-ID"
+	corsAllowMethods     = "GET, POST, PATCH, DELETE, OPTIONS"
+	corsAllowCredentials = "true"
 )
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -27,6 +28,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 			w.Header().Set("Access-Control-Allow-Headers", corsAllowHeaders)
 			w.Header().Set("Access-Control-Allow-Methods", corsAllowMethods)
+			w.Header().Set("Access-Control-Allow-Credentials", corsAllowCredentials)
 			w.Header().Set("Access-Control-Max-Age", "600")
 		}
 
