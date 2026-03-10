@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -15,6 +16,25 @@ type AuthHandlers struct {
 
 func NewAuthHandlers(pool *pgxpool.Pool) *AuthHandlers {
 	return &AuthHandlers{pool: pool}
+}
+
+// registerUser creates a user record and returns the new user ID + JWT.
+// Extracted so invite_handlers can reuse the logic without going through HTTP.
+func (h *AuthHandlers) registerUser(ctx context.Context, email, password, name string) (userID, token string, err error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", "", err
+	}
+	err = h.pool.QueryRow(ctx, `
+		INSERT INTO users (email, name, password_hash)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, email, name, string(hash)).Scan(&userID)
+	if err != nil {
+		return "", "", err
+	}
+	token, err = SignJWT(userID, email)
+	return userID, token, err
 }
 
 // POST /v1/auth/register
