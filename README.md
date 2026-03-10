@@ -1,52 +1,152 @@
 # Winnow
 
-A context management platform for AI coding agents. Helps agents operate in the "smart zone" (efficient context usage) rather than the "dumb zone" (context overwhelm causing degraded performance).
+**Context management for AI coding agents.** Winnow keeps your agents in the "smart zone" — efficient, focused context instead of an overwhelming wall of text.
+
+- 🔗 **API:** https://winnow-api.xferops.dev
+- 🖥️ **UI:** https://winnow.xferops.dev
+- 📖 **Docs:** [`docs/`](./docs/)
+
+---
 
 ## Why Winnow?
 
-AI coding tools struggle in large codebases not because models are incapable, but because context is poorly managed. Winnow solves this by:
+AI coding agents struggle in large codebases not because models are dumb — it's because context is poorly managed. Winnow fixes this:
 
-1. **Context compounds** — Each task makes future tasks easier
-2. **Avoids the dumb zone** — Compaction prevents context overwhelm
-3. **Versioned context** — Agents can update and track changes over time
-4. **Quality feedback** — Review system to improve context quality
-5. **Agent-created context** — Not static docs, but living knowledge
+| Problem | Winnow Solution |
+|---------|----------------|
+| Agents forget what they learned | Write findings as searchable context chunks |
+| Context window fills up | Compaction resets state without losing knowledge |
+| Knowledge goes stale | Versioned updates with full history |
+| Low-quality context accumulates | Review system flags and rates chunks |
 
-## Core Concepts
+---
 
-| Concept | Description |
-|---------|-------------|
-| Context Chunk | A small, composable piece of knowledge created by agents |
-| Compaction | Summarizing context to reset the agent's state |
-| Versioning | Context updates create new versions, preserving history |
-| RPI Workflow | Research → Plan → Implement |
-| Smart Zone | Efficient context usage (<40% of window) |
+## Quickstart (5 minutes)
 
-## Quick Links
+### 1. Get an API key
 
-- [Problem & Sources](./docs/01-problem-sources.md) — Why this exists
-- [Architecture](./docs/02-architecture.md) — System design
-- [MCP Tools](./docs/03-mcp-tools.md) — Tool specifications
-- [Skills](./docs/04-skills.md) — Agent workflows
-- [Workflows](./docs/05-workflows.md) — Visual diagrams
+```bash
+curl -X POST https://winnow-api.xferops.dev/v1/keys \
+  -H "Content-Type: application/json" \
+  -d '{"org_slug": "your-org"}'
+```
+
+Returns: `{ "key": "ctx_your-org_..." }` — save this, it's only shown once.
+
+### 2. Configure your MCP client
+
+**Claude Desktop / Cursor / OpenClaw** — add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "winnow": {
+      "url": "https://winnow-api.xferops.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ctx_your-org_YOUR_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+### 3. Use it in your agent
+
+```
+search_context("how does authentication work")
+→ returns relevant chunks ranked by semantic similarity
+
+write_context(
+  query_key="auth-flow",
+  title="JWT verification in middleware",
+  content="The auth middleware validates JWTs by...",
+  source_file="internal/auth/middleware.go",
+  source_lines=[42, 67]
+)
+→ stores with embedding for future retrieval
+```
+
+That's it. Your agent now has persistent, searchable memory.
+
+---
 
 ## MCP Tools
 
-| Tool | Purpose |
-|------|---------|
-| `write_context` | Agent writes research finding |
-| `search_context` | Find relevant context (sorted by relevance + recency) |
-| `read_context` | Get specific context chunk with version info |
-| `update_context` | Update existing chunk (creates new version) |
-| `get_context_versions` | View version history of a chunk |
+All tools require `Authorization: Bearer <key>` header (configured once in your MCP client).
+
+| Tool | What it does |
+|------|-------------|
+| `write_context` | Store a research finding or knowledge chunk |
+| `search_context` | Semantic search across all chunks |
+| `read_context` | Retrieve a specific chunk with version history |
+| `update_context` | Versioned update to an existing chunk |
+| `get_context_versions` | View full version history |
 | `compact_context` | Fetch chunks for agent-side compaction |
-| `review_context` | Quality review (usefulness, correctness) |
+| `review_context` | Rate chunk quality (usefulness + correctness) |
+| `delete_context` | Remove a chunk |
 
-## Research Sources
+→ Full tool reference: [`docs/mcp-guide.md`](./docs/mcp-guide.md)
 
-- Dex Horthy: "No Vibes Allowed: Solving Hard Problems in Complex Codebases"
-- The Original Development MCP (Pike13 internal)
+---
+
+## REST API
+
+Same auth, same data — REST alternative to MCP.
+
+```
+POST   /v1/context            # write
+GET    /v1/context/search     # search
+GET    /v1/context/compact    # compact
+GET    /v1/context/:id        # read
+PATCH  /v1/context/:id        # update
+DELETE /v1/context/:id        # delete
+GET    /v1/context/:id/versions  # version history
+POST   /v1/context/:id/review    # review
+GET    /health                # health check
+```
+
+→ Full API reference: [`docs/api-reference.md`](./docs/api-reference.md)
+
+---
+
+## Core Concepts
+
+**Context Chunk** — A small, composable unit of knowledge. Has a title, content, source location, gotchas, and related chunk IDs.
+
+**Query Key** — A namespace tag on chunks (e.g. `"auth-flow"`, `"database-schema"`). Used to scope searches.
+
+**Compaction** — Fetch a set of related chunks and have your agent summarize them into a single new chunk. Resets working context without losing knowledge.
+
+**Smart Zone** — Keeping your context window under ~40% full. Compaction is the main tool to stay there.
+
+**RPI Workflow** — Research → Plan → Implement. Use Winnow during the Research phase to accumulate knowledge, then compact before implementation.
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|---------|
+| [`docs/api-reference.md`](./docs/api-reference.md) | Full REST API with request/response examples |
+| [`docs/mcp-guide.md`](./docs/mcp-guide.md) | MCP connection guide + all tool schemas |
+| [`docs/self-hosting.md`](./docs/self-hosting.md) | Docker Compose local dev setup |
+| [`docs/workflows.md`](./docs/workflows.md) | Example agent workflows |
+
+---
+
+## Self-Hosting
+
+Run Winnow locally in 2 commands:
+
+```bash
+cp .env.example .env   # fill in OPENAI_API_KEY
+docker compose up
+```
+
+→ Full guide: [`docs/self-hosting.md`](./docs/self-hosting.md)
+
+---
 
 ## Status
 
-**Researching / Designing** — Defining the product before implementation
+**v0.1** — Production API live at `winnow-api.xferops.dev`. Self-service key management UI coming in v0.2.

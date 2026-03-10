@@ -1,0 +1,126 @@
+---
+description: Rules for using Winnow (context management API) in this codebase
+globs: ["**/*.go", "**/*.ts", "**/*.tsx", "**/*.md"]
+---
+
+# Winnow Context Management Rules
+
+## What is Winnow?
+Winnow is a semantic context store for AI agents. It stores, searches, and versions knowledge chunks using vector embeddings. Use it to persist findings, plans, and decisions so they survive across sessions.
+
+## MCP Configuration
+Add to your MCP config (`~/.cursor/mcp.json`):
+```json
+{
+  "mcpServers": {
+    "winnow": {
+      "url": "https://winnow-api.xferops.dev/mcp",
+      "headers": { "Authorization": "Bearer dk_live_YOUR_KEY_HERE" }
+    }
+  }
+}
+```
+
+## Core Tools
+
+| Tool | Purpose |
+|------|---------|
+| `search_context` | Semantic search — always run this first |
+| `read_context` | Fetch a chunk by ID |
+| `write_context` | Store a new chunk with embedding |
+| `update_context` | Update a chunk (creates new version) |
+| `get_context_versions` | View version history of a chunk |
+| `compact_context` | Fetch many chunks for summarization |
+| `review_context` | Rate a chunk's quality (1-5) |
+| `delete_context` | Remove a chunk |
+
+## Coding Conventions
+
+### API Key Format
+```
+dk_live_{org}_{random}   — production
+dk_test_{org}_{random}   — testing
+```
+Never hardcode API keys. Use env vars: `WINNOW_API_KEY`.
+
+### Go API Patterns
+```go
+// Always pass projectID from config, never hardcode
+ctx := context.Background()
+result, err := client.SearchContext(ctx, &winnow.SearchRequest{
+    ProjectID: cfg.ProjectID,
+    Query:     "search query",
+    Limit:     10,
+})
+```
+
+### REST Endpoints
+```
+POST   /api/context          — write_context
+GET    /api/context/:id      — read_context
+PUT    /api/context/:id      — update_context
+DELETE /api/context/:id      — delete_context
+GET    /api/context/:id/versions — get_context_versions
+POST   /api/context/search   — search_context
+POST   /api/context/compact  — compact_context
+POST   /api/context/:id/review — review_context
+```
+
+## Workflow Rules
+
+### Before writing new context
+1. ALWAYS `search_context` first with the topic
+2. If a relevant chunk exists, `update_context` instead of creating a duplicate
+3. One concept per chunk — don't pack unrelated topics together
+
+### Tagging conventions
+```
+["research", "<topic>"]        — research findings
+["plan", "<feature>", "<milestone>"]  — plans
+["decision", "<area>"]         — architectural decisions
+["onboarding", "overview"]     — onboarding/overview docs
+["compacted", "<topic>"]       — merged/summarized chunks
+["convention", "<area>"]       — coding standards, patterns
+```
+
+### Chunk quality guidelines
+- **Size:** 100–600 words per chunk
+- **Focus:** One concept, one decision, one research finding
+- **Source:** Always include source URL or file path when available
+- **Tags:** Minimum 2 tags — topic + type
+
+### Context hygiene
+- Review chunks periodically (`winnow-review` workflow)
+- Compact related chunks after sprints (`winnow-compact` workflow)
+- Delete superseded chunks — don't let the store go stale
+
+## Workflow Shortcuts
+
+### Research a topic
+```
+1. search_context(query="<topic>", limit=5)
+2. read_context(<top result IDs>)
+3. <gather new info if needed>
+4. write_context(<new findings>)
+```
+
+### Start a task
+```
+1. search_context(query="<task area>", limit=5)
+2. search_context(query="conventions patterns", limit=3)
+3. Build mental model from results
+4. Plan the work, save plan with write_context
+```
+
+### End of session
+```
+1. write_context(<summary of what was done>)
+2. Tag with session date and feature area
+```
+
+## Testing
+Use `dk_test_*` keys against staging:
+```
+https://winnow-api.xferops.dev  (shared staging)
+```
+Never use production keys in tests.
