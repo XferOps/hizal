@@ -70,6 +70,19 @@ Use this database URL in `.env` (matches `docker-compose.yml`):
 DATABASE_URL=postgres://user:password@localhost:5434/winnow?sslmode=disable
 ```
 
+For local UI development (Vite on `:5173`), keep:
+
+```bash
+ENV=development
+CORS_ALLOW_ORIGINS=http://localhost:5173
+```
+
+If you want to disable origin checks locally, set:
+
+```bash
+CORS_ALLOW_ORIGINS=*
+```
+
 Start local dependencies and app:
 
 ```bash
