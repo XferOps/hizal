@@ -35,10 +35,16 @@ func writeError(w http.ResponseWriter, status int, code, msg string) {
 func projectID(r *http.Request) string {
 	claims, ok := ClaimsFrom(r.Context())
 	if !ok {
-		return ""
+		if projectID := r.URL.Query().Get("project_id"); projectID != "" {
+			return projectID
+		}
+		return r.Header.Get("X-Project-ID")
 	}
 	if claims.ProjectID != "" {
 		return claims.ProjectID
+	}
+	if projectID := r.URL.Query().Get("project_id"); projectID != "" {
+		return projectID
 	}
 	return r.Header.Get("X-Project-ID")
 }

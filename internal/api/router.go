@@ -137,7 +137,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// REST API (requires auth)
 	r.Route("/v1/context", func(r chi.Router) {
-		r.Use(APIKeyAuth(pool))
+		r.Use(ContextAuth(pool))
 
 		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/XferOps/winnow/internal/auth"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -51,10 +52,10 @@ func APIKeyAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			`, keyHash)
 
 			var (
-				keyID            string
-				scopeAll         bool
-				allowedIDs       []string
-				orgID            string
+				keyID      string
+				scopeAll   bool
+				allowedIDs []string
+				orgID      string
 			)
 			if err := row.Scan(&keyID, &scopeAll, &allowedIDs, &orgID); err != nil {
 				writeAuthError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid API key")
@@ -86,6 +87,67 @@ func APIKeyAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				AllowedProjects:  allowedIDs,
 			}
 			next.ServeHTTP(w, r.WithContext(withClaims(r.Context(), claims)))
+		})
+	}
+}
+
+// ContextAuth accepts either a JWT or an API key for context routes.
+// JWT callers must scope the request to a project via `project_id` or `X-Project-ID`.
+func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+	apiKeyAuth := APIKeyAuth(pool)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if pool == nil {
+				writeAuthError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+				return
+			}
+
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+				writeAuthError(w, http.StatusUnauthorized, "AUTH_INVALID", "missing or invalid Authorization header")
+				return
+			}
+
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			jwtClaims, err := ParseJWT(tokenStr)
+			if err != nil {
+				apiKeyAuth(next).ServeHTTP(w, r)
+				return
+			}
+
+			projectID := r.URL.Query().Get("project_id")
+			if projectID == "" {
+				projectID = r.Header.Get("X-Project-ID")
+			}
+			if projectID == "" {
+				writeAuthError(w, http.StatusBadRequest, "PROJECT_REQUIRED", "project_id query param or X-Project-ID header is required")
+				return
+			}
+
+			var orgID string
+			err = pool.QueryRow(r.Context(), `
+				SELECT p.org_id
+				FROM projects p
+				JOIN org_memberships om ON om.org_id = p.org_id
+				WHERE p.id = $1 AND om.user_id = $2
+			`, projectID, jwtClaims.UserID).Scan(&orgID)
+			if err != nil {
+				if err == pgx.ErrNoRows {
+					writeAuthError(w, http.StatusForbidden, "FORBIDDEN", "project not found or not accessible")
+					return
+				}
+				writeAuthError(w, http.StatusInternalServerError, "DB_ERROR", "failed to authorize project access")
+				return
+			}
+
+			user := JWTUser{ID: jwtClaims.UserID, Email: jwtClaims.Email}
+			claims := AuthClaims{
+				OrgID:     orgID,
+				ProjectID: projectID,
+			}
+			ctx := withJWTUser(r.Context(), user)
+			next.ServeHTTP(w, r.WithContext(withClaims(ctx, claims)))
 		})
 	}
 }
