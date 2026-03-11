@@ -34,9 +34,26 @@ CREATE INDEX IF NOT EXISTS agent_projects_project_idx ON agent_projects(project_
 
 -- Alter api_keys to support both USER and AGENT ownership.
 -- owner_type discriminator: 'USER' or 'AGENT'
+-- org_id is denormalized here to avoid a JOIN on every API key auth check.
 ALTER TABLE api_keys
   ADD COLUMN IF NOT EXISTS owner_type VARCHAR(20) NOT NULL DEFAULT 'USER',
-  ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES agents(id) ON DELETE CASCADE;
+  ADD COLUMN IF NOT EXISTS agent_id   UUID REFERENCES agents(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS org_id     UUID REFERENCES orgs(id)   ON DELETE CASCADE;
+
+-- Back-fill org_id for existing user-owned keys via org_memberships.
+-- If a user belongs to multiple orgs this picks the oldest membership; keys
+-- created going forward will have org_id set explicitly by the application.
+UPDATE api_keys ak
+SET org_id = (
+  SELECT om.org_id
+  FROM org_memberships om
+  WHERE om.user_id = ak.user_id
+  ORDER BY om.created_at
+  LIMIT 1
+)
+WHERE ak.org_id IS NULL AND ak.user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS api_keys_org_idx ON api_keys(org_id);
 
 -- Existing rows are all user-owned and remain valid after relaxing this column.
 ALTER TABLE api_keys ALTER COLUMN user_id DROP NOT NULL;

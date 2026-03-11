@@ -34,6 +34,15 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Resolve agent's org_id for denormalized storage on the key row.
+	var agentOrgID string
+	if err := h.pool.QueryRow(r.Context(),
+		`SELECT org_id FROM agents WHERE id = $1`, agentID,
+	).Scan(&agentOrgID); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to resolve agent org")
+		return
+	}
+
 	plaintext, keyHash, err := auth.GenerateAPIKey(body.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
@@ -42,10 +51,10 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 
 	var keyID string
 	err = h.pool.QueryRow(r.Context(), `
-		INSERT INTO api_keys (owner_type, agent_id, key_hash, name, scope_all_projects, allowed_project_ids)
-		VALUES ('AGENT', $1, $2, $3, FALSE, '{}')
+		INSERT INTO api_keys (owner_type, agent_id, org_id, key_hash, name, scope_all_projects, allowed_project_ids)
+		VALUES ('AGENT', $1, $2, $3, $4, FALSE, '{}')
 		RETURNING id
-	`, agentID, keyHash, body.Name).Scan(&keyID)
+	`, agentID, agentOrgID, keyHash, body.Name).Scan(&keyID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return

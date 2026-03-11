@@ -1,5 +1,7 @@
+DROP INDEX IF EXISTS api_keys_org_idx;
 DROP INDEX IF EXISTS api_keys_agent_idx;
 ALTER TABLE api_keys DROP CONSTRAINT IF EXISTS api_keys_owner_check;
+ALTER TABLE api_keys DROP COLUMN IF EXISTS org_id;
 ALTER TABLE api_keys DROP COLUMN IF EXISTS agent_id;
 ALTER TABLE api_keys DROP COLUMN IF EXISTS owner_type;
 ALTER TABLE api_keys ALTER COLUMN user_id SET NOT NULL;
