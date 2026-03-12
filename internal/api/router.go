@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -34,6 +35,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	}
 
 	authH := NewAuthHandlers(pool)
+	inviteH, _ := NewInviteHandlers(context.Background(), pool)
 	orgH := NewOrgHandlers(pool)
 	projH := NewProjectHandlers(pool)
 	projMemberH := NewProjectMembershipHandlers(pool)
@@ -46,6 +48,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Post("/register", authH.Register)
 		r.Post("/login", authH.Login)
 		r.With(JWTAuth()).Get("/me", authH.Me)
+		r.Post("/accept-invite", inviteH.AcceptInvite)
 	})
 
 	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
@@ -77,6 +80,12 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Post("/v1/orgs/{id}/members", orgH.InviteMember)
 		r.Delete("/v1/orgs/{id}/members/{userId}", orgH.RemoveMember)
 		r.Patch("/v1/orgs/{id}/members/{userId}", orgH.UpdateMemberRole)
+
+		// Org invites
+		r.Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
+		r.Get("/v1/orgs/{id}/invites", inviteH.ListInvites)
+		r.Delete("/v1/orgs/{id}/invites/{inviteId}", inviteH.CancelInvite)
+		r.Post("/v1/orgs/{id}/invites/{inviteId}/resend", inviteH.ResendInvite)
 
 		// Projects
 		r.Post("/v1/orgs/{id}/projects", projH.CreateProject)

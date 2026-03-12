@@ -1,4 +1,4 @@
-.PHONY: build run test migrate-up migrate-down seed docker-build
+.PHONY: build run test migrate-up migrate-down migrate-force seed docker-build
 
 # Load .env if it exists
 -include .env
@@ -35,6 +35,17 @@ migrate-down:
 		migrate -path $(MIGRATIONS) -database "$(DATABASE_URL)" down 1; \
 	else \
 		docker run --rm -v "$(PWD)/internal/db/migrations:/migrations" $(MIGRATE_IMAGE) -path=/migrations -database "$(DATABASE_URL_DOCKER)" down 1; \
+	fi
+
+migrate-force:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "VERSION is required. Usage: make migrate-force VERSION=<n>"; \
+		exit 1; \
+	fi
+	@if command -v migrate >/dev/null 2>&1; then \
+		migrate -path $(MIGRATIONS) -database "$(DATABASE_URL)" force "$(VERSION)"; \
+	else \
+		docker run --rm -v "$(PWD)/internal/db/migrations:/migrations" $(MIGRATE_IMAGE) -path=/migrations -database "$(DATABASE_URL_DOCKER)" force "$(VERSION)"; \
 	fi
 
 seed:

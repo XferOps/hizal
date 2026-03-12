@@ -245,19 +245,49 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Name string `json:"name"`
+		Name *string `json:"name"`
+		Slug *string `json:"slug"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name is required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+		return
+	}
+	if body.Name == nil && body.Slug == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name or slug is required")
+		return
+	}
+	if body.Name != nil && *body.Name == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name cannot be empty")
+		return
+	}
+	if body.Slug != nil && *body.Slug == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "slug cannot be empty")
 		return
 	}
 
-	_, err := h.pool.Exec(r.Context(), `UPDATE orgs SET name = $1, updated_at = NOW() WHERE id = $2`, body.Name, orgID)
+	var org models.Org
+	err := h.pool.QueryRow(r.Context(), `
+		UPDATE orgs
+		SET
+			name = COALESCE($1, name),
+			slug = COALESCE($2, slug),
+			updated_at = NOW()
+		WHERE id = $3
+		RETURNING id, name, slug
+	`, body.Name, body.Slug, orgID).Scan(&org.ID, &org.Name, &org.Slug)
 	if err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an org with that slug already exists")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"id": orgID, "name": body.Name})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":   org.ID,
+		"name": org.Name,
+		"slug": org.Slug,
+	})
 }
 
 // POST /v1/orgs/:id/members — invite user by email
