@@ -230,6 +230,113 @@ Resolve the ` + "`project_id`" + ` explicitly for all project-scoped MCP calls.
 - Prefer updating stale chunks with a superseded note over deleting them when history matters.
 `,
 	},
+	"winnow-seed": {
+		ID:          "winnow-seed",
+		Title:       "Winnow Seed",
+		Description: "Seed a new or empty Winnow project with foundational context by scanning repos, docs, and configs thoroughly, then writing structured chunks across a planned taxonomy.",
+		Purpose:     "Populate a new Winnow project with its initial knowledge base from a codebase.",
+		Format:      "markdown",
+		Markdown: `---
+name: winnow-seed
+description: Seed a new or empty Winnow project with foundational context by scanning repos, docs, and configs thoroughly, then writing structured chunks across a planned taxonomy. Use when a project has no context yet, when onboarding a new codebase to Winnow, or when the user says "seed this project" or "backfill context."
+---
+
+# Winnow Seed
+
+Use this skill to populate a Winnow project with its initial knowledge base. This is the "day zero" workflow — turning an empty project into something agents can actually onboard from.
+
+## When To Use
+
+- A new Winnow project has been created but has no chunks
+- A codebase has been added to Winnow and needs initial context
+- The user asks to "seed," "backfill," or "bootstrap" a project
+- ` + "`search_context(query=\"*\")`" + ` returns empty or near-empty results
+
+## Setup
+
+Expect a Winnow MCP server to be configured with:
+- ` + "`Authorization: Bearer <api-key>`" + `
+
+Resolve the ` + "`project_id`" + ` explicitly. If unclear, call ` + "`list_projects`" + ` first.
+
+## Workflow
+
+### 1. Assess Current State
+
+Check what already exists:
+
+` + "```" + `
+search_context(query="*", project_id="<project_id>", limit=50)
+` + "```" + `
+
+If chunks already exist, this is not a seed — use winnow-research or winnow-compact instead.
+
+### 2. Gather Source Material
+
+Scan the target codebase thoroughly. Do not skim — read deeply:
+
+- **Documentation:** README, docs/, architecture docs, ADRs, CONTRIBUTING
+- **Configuration:** package.json/go.mod, Dockerfile, CI/CD configs, env files
+- **Source code:** Entry points, routers, models, middleware, auth, schema/migrations
+- **Infrastructure:** Deploy workflows, container configs, cloud resources, DNS
+- **Tests:** Test structure reveals architecture and expected behavior
+
+### 3. Plan the Taxonomy
+
+Before writing any chunks, draft a set of ` + "`query_key`" + ` categories. Good taxonomies are:
+
+- **Exhaustive** — every important topic has a home
+- **Non-overlapping** — categories are distinct
+- **Searchable** — an agent looking for a topic would find it
+
+Recommended starting categories (adapt to the project):
+
+- ` + "`architecture`" + ` — System overview, components, tech stack, product vision
+- ` + "`domain-model`" + ` — Entity glossary, relationships, business concepts
+- ` + "`api-routes`" + ` — Endpoints, request/response shapes, middleware
+- ` + "`auth`" + ` — Authentication, authorization, roles, permissions
+- ` + "`database-schema`" + ` — Tables, migrations, indexes, constraints
+- ` + "`code-patterns`" + ` — Conventions, project structure, dependencies, error handling
+- ` + "`frontend-patterns`" + ` — UI framework, components, state management, styling
+- ` + "`deployment`" + ` — CI/CD, Docker, cloud infra, env vars, DNS
+
+Drop categories that do not apply. Add domain-specific categories as needed.
+
+### 4. Write Chunks Systematically
+
+Work through the taxonomy one category at a time. For each chunk:
+
+- **Title:** Descriptive — "Authentication and Authorization Model" not "Auth"
+- **Content:** Concise but thorough. An agent should be able to start working from this.
+- **source_file:** Primary file or directory the knowledge came from
+- **gotchas:** Non-obvious constraints, footguns, known issues. Highest-value field.
+- **related:** Other query_keys this connects to
+
+Aim for 500-1500 words per chunk. One concept per chunk. Multiple chunks per category is fine.
+
+### 5. Verify Coverage
+
+After writing all chunks:
+
+` + "```" + `
+search_context(query="*", project_id="<project_id>", limit=50)
+` + "```" + `
+
+Check every taxonomy category has at least one chunk, no major area is unrepresented, and related fields form a connected graph.
+
+### 6. Report
+
+Summarize: total chunks created, categories covered, gaps for future research.
+
+## Notes
+
+- This skill writes many chunks in one session. Be methodical.
+- Do not duplicate information across chunks. Reference, do not repeat.
+- Include dependency and design system information.
+- Always document the deploy pipeline.
+- Seed chunks are foundational — they will be read hundreds of times. Make them good.
+`,
+	},
 	"winnow-review": {
 		ID:          "winnow-review",
 		Title:       "Winnow Review",

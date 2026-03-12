@@ -114,10 +114,12 @@ http_headers = { Authorization = "Bearer <agent-api-key>" }
 1. Call this onboarding endpoint with your API key.
 2. Inspect available_projects or call list_projects and pick a project if needed.
 3. Pass that project_id on MCP tool calls.
-4. Use search_context to find architecture, auth, data model, deployment, and recent change context.
-5. Read the top results before touching code.
-6. If foundational context is missing, create it immediately.
-7. At handoff, compact the relevant topic and write a summary chunk for the next agent.
+4. Check if the project has existing context: search_context(query="*", limit=5).
+5. **If the project is empty or sparse, use the winnow-seed skill first.** Seeding is the most important step for a new project — without foundational context, all other workflows (research, plan, compact) have nothing to build on. Scan the codebase thoroughly and write structured chunks across a planned taxonomy.
+6. If context exists, use search_context to find architecture, auth, data model, deployment, and recent change context.
+7. Read the top results before touching code.
+8. If foundational context is missing in specific areas, create it immediately.
+9. At handoff, compact the relevant topic and write a summary chunk for the next agent.
 
 ## What Good Context Looks Like
 
@@ -139,7 +141,8 @@ Preferred chunk shape:
 
 ## Recommended Operating Rules For Agents
 
-- Search before writing.
+- **Seed before everything else.** If a project has no context, use winnow-seed to populate it before doing any other work. An empty knowledge base makes all other workflows ineffective.
+- Search before writing. Duplicate chunks reduce retrieval quality.
 - Prefer updating an existing chunk over creating a second overlapping chunk.
 - Include concrete file references whenever knowledge came from the codebase.
 - Use compaction aggressively.
