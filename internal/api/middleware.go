@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/XferOps/winnow/internal/auth"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -123,29 +122,26 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				return
 			}
 
-			var orgID string
-			err = pool.QueryRow(r.Context(), `
-				SELECT p.org_id
-				FROM projects p
-				JOIN org_memberships om ON om.org_id = p.org_id
-				WHERE p.id = $1 AND om.user_id = $2
-			`, projectID, jwtClaims.UserID).Scan(&orgID)
+			user := JWTUser{ID: jwtClaims.UserID, Email: jwtClaims.Email}
+			ctx := withJWTUser(r.Context(), user)
+			scopedReq := r.WithContext(ctx)
+
+			_, orgID, err := requireProjectAccess(scopedReq, pool, projectID)
 			if err != nil {
-				if err == pgx.ErrNoRows {
-					writeAuthError(w, http.StatusForbidden, "FORBIDDEN", "project not found or not accessible")
-					return
+				switch err.Error() {
+				case "project not found", "not a member of this project", "insufficient permissions":
+					writeAuthError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+				default:
+					writeAuthError(w, http.StatusInternalServerError, "DB_ERROR", "failed to authorize project access")
 				}
-				writeAuthError(w, http.StatusInternalServerError, "DB_ERROR", "failed to authorize project access")
 				return
 			}
 
-			user := JWTUser{ID: jwtClaims.UserID, Email: jwtClaims.Email}
 			claims := AuthClaims{
 				OrgID:     orgID,
 				ProjectID: projectID,
 			}
-			ctx := withJWTUser(r.Context(), user)
-			next.ServeHTTP(w, r.WithContext(withClaims(ctx, claims)))
+			next.ServeHTTP(w, scopedReq.WithContext(withClaims(ctx, claims)))
 		})
 	}
 }
