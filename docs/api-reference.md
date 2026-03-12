@@ -132,6 +132,7 @@ Authorization: Bearer ctx_your-org_YOUR_KEY_HERE
   ],
   "tooling": {
     "implemented_tools": [
+      "list_projects",
       "search_context",
       "read_context",
       "write_context",
@@ -142,13 +143,13 @@ Authorization: Bearer ctx_your-org_YOUR_KEY_HERE
       "delete_context"
     ],
     "required_headers": [
-      "Authorization: Bearer <api-key>",
-      "X-Project-ID: <project-id>"
-    ]
+      "Authorization: Bearer <api-key>"
+    ],
+    "project_selection": "Pass project_id in MCP tool arguments. Context REST requests still accept project_id query param or X-Project-ID header."
   },
   "instructions": [
     "Use Winnow before exploring the codebase directly.",
-    "Choose one project from available_projects and send X-Project-ID on subsequent MCP or context requests."
+    "Choose one project from available_projects or call list_projects, then pass project_id on subsequent MCP tool calls."
   ],
   "chunk_shape": {
     "required": ["query_key", "title", "content"],
@@ -161,7 +162,8 @@ Authorization: Bearer ctx_your-org_YOUR_KEY_HERE
 
 - Call this endpoint without `X-Project-ID` if the agent first needs to discover available projects.
 - If the key can access multiple projects, `needs_project_selection` will be `true` until the agent chooses one.
-- Subsequent MCP and context requests should include `X-Project-ID`.
+- Subsequent MCP tool calls should pass `project_id`.
+- Subsequent context REST requests can still use `project_id` query param or `X-Project-ID`.
 
 ---
 

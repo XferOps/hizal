@@ -26,6 +26,7 @@ func NewTools(pool *pgxpool.Pool, embed *embeddings.Client) *Tools {
 // ---- Input/Output types ----
 
 type WriteContextInput struct {
+	ProjectID   string   `json:"project_id,omitempty"`
 	QueryKey    string   `json:"query_key"`
 	Title       string   `json:"title"`
 	Content     string   `json:"content"`
@@ -43,9 +44,10 @@ type WriteContextResult struct {
 }
 
 type SearchContextInput struct {
-	Query    string `json:"query"`
-	Limit    int    `json:"limit,omitempty"`
-	QueryKey string `json:"query_key,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit,omitempty"`
+	QueryKey  string `json:"query_key,omitempty"`
 }
 
 type ChunkResult struct {
@@ -68,7 +70,8 @@ type SearchContextResult struct {
 }
 
 type ReadContextInput struct {
-	ID string `json:"id"`
+	ProjectID string `json:"project_id,omitempty"`
+	ID        string `json:"id"`
 }
 
 type VersionResult struct {
@@ -83,6 +86,7 @@ type ReadContextResult struct {
 }
 
 type UpdateContextInput struct {
+	ProjectID   string   `json:"project_id,omitempty"`
 	ID          string   `json:"id"`
 	Title       *string  `json:"title,omitempty"`
 	Content     *string  `json:"content,omitempty"`
@@ -100,8 +104,9 @@ type UpdateContextResult struct {
 }
 
 type GetVersionsInput struct {
-	ID    string `json:"id"`
-	Limit int    `json:"limit,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	ID        string `json:"id"`
+	Limit     int    `json:"limit,omitempty"`
 }
 
 type GetVersionsResult struct {
@@ -109,8 +114,9 @@ type GetVersionsResult struct {
 }
 
 type CompactContextInput struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit,omitempty"`
 }
 
 type CompactContextResult struct {
@@ -119,6 +125,7 @@ type CompactContextResult struct {
 }
 
 type ReviewContextInput struct {
+	ProjectID       string `json:"project_id,omitempty"`
 	ChunkID         string `json:"chunk_id"`
 	Task            string `json:"task,omitempty"`
 	Usefulness      int    `json:"usefulness"`
@@ -135,7 +142,8 @@ type ReviewContextResult struct {
 }
 
 type DeleteContextInput struct {
-	ID string `json:"id"`
+	ProjectID string `json:"project_id,omitempty"`
+	ID        string `json:"id"`
 }
 
 type DeleteContextResult struct {

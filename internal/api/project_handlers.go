@@ -29,8 +29,9 @@ func (h *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var body struct {
-		Name string `json:"name"`
-		Slug string `json:"slug"`
+		Name        string  `json:"name"`
+		Slug        string  `json:"slug"`
+		Description *string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
@@ -39,8 +40,10 @@ func (h *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request) 
 
 	var project models.Project
 	err := h.pool.QueryRow(r.Context(), `
-		INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id, org_id, name, slug
-	`, orgID, body.Name, body.Slug).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug)
+		INSERT INTO projects (org_id, name, slug, description)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, org_id, name, slug, description
+	`, orgID, body.Name, body.Slug, body.Description).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug, &project.Description)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a project with that slug already exists in this org")
@@ -51,10 +54,11 @@ func (h *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":     project.ID,
-		"org_id": project.OrgID,
-		"name":   project.Name,
-		"slug":   project.Slug,
+		"id":          project.ID,
+		"org_id":      project.OrgID,
+		"name":        project.Name,
+		"slug":        project.Slug,
+		"description": project.Description,
 	})
 }
 
@@ -74,7 +78,7 @@ func (h *ProjectHandlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT p.id, p.org_id, p.name, p.slug, p.created_at, pm.role
+		SELECT p.id, p.org_id, p.name, p.slug, p.description, p.created_at, pm.role
 		FROM projects p
 		LEFT JOIN project_memberships pm ON pm.project_id = p.id AND pm.user_id = $2
 		WHERE p.org_id = $1
@@ -91,6 +95,7 @@ func (h *ProjectHandlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 		OrgID         string  `json:"org_id"`
 		Name          string  `json:"name"`
 		Slug          string  `json:"slug"`
+		Description   *string `json:"description,omitempty"`
 		CreatedAt     string  `json:"created_at"`
 		IsMember      bool    `json:"is_member"`
 		EffectiveRole *string `json:"effective_role"`
@@ -100,7 +105,7 @@ func (h *ProjectHandlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var project models.Project
 		var projectRole *string
-		if err := rows.Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug, &project.CreatedAt, &projectRole); err != nil {
+		if err := rows.Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug, &project.Description, &project.CreatedAt, &projectRole); err != nil {
 			continue
 		}
 
@@ -122,6 +127,7 @@ func (h *ProjectHandlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 			OrgID:         project.OrgID,
 			Name:          project.Name,
 			Slug:          project.Slug,
+			Description:   project.Description,
 			CreatedAt:     project.CreatedAt.Format(time.RFC3339),
 			IsMember:      isMember,
 			EffectiveRole: effectiveRole,
@@ -156,15 +162,16 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var body struct {
-		Name *string `json:"name"`
-		Slug *string `json:"slug"`
+		Name        *string `json:"name"`
+		Slug        *string `json:"slug"`
+		Description *string `json:"description"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
 		return
 	}
-	if body.Name == nil && body.Slug == nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name or slug is required")
+	if body.Name == nil && body.Slug == nil && body.Description == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name, slug, or description is required")
 		return
 	}
 	if body.Name != nil && *body.Name == "" {
@@ -181,10 +188,14 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 		SET
 			name = COALESCE($1, name),
 			slug = COALESCE($2, slug),
+			description = CASE
+				WHEN $3::text IS NULL THEN description
+				ELSE $3
+			END,
 			updated_at = NOW()
-		WHERE id = $3
-		RETURNING id, org_id, name, slug
-	`, body.Name, body.Slug, project.ID).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug)
+		WHERE id = $4
+		RETURNING id, org_id, name, slug, description
+	`, body.Name, body.Slug, body.Description, project.ID).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug, &project.Description)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a project with that slug already exists in this org")
@@ -195,9 +206,10 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":     project.ID,
-		"org_id": project.OrgID,
-		"name":   project.Name,
-		"slug":   project.Slug,
+		"id":          project.ID,
+		"org_id":      project.OrgID,
+		"name":        project.Name,
+		"slug":        project.Slug,
+		"description": project.Description,
 	})
 }

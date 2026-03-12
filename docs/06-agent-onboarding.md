@@ -86,12 +86,20 @@ Winnow exposes MCP at `/mcp` and expects a bearer API key in `Authorization`.
 Project scoping matters:
 
 - Context operations require a project scope.
-- The MCP server reads project scope from the `X-Project-ID` header.
-- Tool handlers fail if `project_id` is missing.
+- For MCP tools, pass `project_id` in tool arguments.
+- Context REST routes still accept `project_id` query param or `X-Project-ID` header.
 
 For practical onboarding, each agent should be treated as operating in one explicit project context at a time.
 
-Recommended MCP config shape:
+Recommended MCP config shape for Codex CLI:
+
+```toml
+[mcp_servers.winnow]
+url = "https://winnow-api.xferops.dev/mcp"
+http_headers = { Authorization = "Bearer <agent-api-key>" }
+```
+
+Recommended MCP config shape for JSON-based clients:
 
 ```json
 {
@@ -99,8 +107,7 @@ Recommended MCP config shape:
     "winnow": {
       "url": "https://winnow-api.xferops.dev/mcp",
       "headers": {
-        "Authorization": "Bearer <agent-api-key>",
-        "X-Project-ID": "<project-uuid>"
+        "Authorization": "Bearer <agent-api-key>"
       }
     }
   }
@@ -111,17 +118,19 @@ Recommended MCP config shape:
 
 When a new agent starts on a project:
 
-1. Connect to the Winnow MCP server with the agent API key and the target `X-Project-ID`.
-2. Search for high-level project context first:
+1. Connect to the Winnow MCP server with the agent API key.
+2. Inspect `available_projects` from onboarding or call `list_projects`.
+3. Pass the selected `project_id` on MCP tool calls.
+4. Search for high-level project context first:
    - architecture
    - auth
    - data model
    - deployment
    - current roadmap or recent changes
-3. Read the top results and build a mental model before touching code.
-4. If foundational context is missing, create it immediately.
-5. During work, keep chunks narrow and factual. One chunk should usually describe one concept, subsystem, flow, or decision.
-6. At handoff, compact the relevant topic and write a summary chunk for the next agent.
+5. Read the top results and build a mental model before touching code.
+6. If foundational context is missing, create it immediately.
+7. During work, keep chunks narrow and factual. One chunk should usually describe one concept, subsystem, flow, or decision.
+8. At handoff, compact the relevant topic and write a summary chunk for the next agent.
 
 ## What Good Context Looks Like
 
@@ -156,7 +165,7 @@ The local `skills/` directory is useful as workflow guidance, but several exampl
 
 Examples of mismatch:
 
-- Some skills show `projectId` in tool arguments. The implemented MCP server reads project scope from `X-Project-ID`.
+- Some skills show `projectId` in tool arguments. The implemented MCP server expects `project_id` on MCP tool calls.
 - Some skills use fields like `tags` or `source`. The implemented tool schema uses `query_key`, `title`, `content`, `source_file`, `source_lines`, `gotchas`, and `related`.
 - Some skills describe `compact_context(ids=[...])`. The implemented tool accepts a semantic `query` and returns matching chunks for agent-side summarization.
 - Some review examples use a single `rating`. The implemented review flow tracks usefulness, correctness, notes, and an action.

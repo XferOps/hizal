@@ -41,6 +41,8 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 	orgSlug := "project-list-org-" + strings.ToLower(uuid.NewString())
 	accessibleSlug := "accessible-" + strings.ToLower(uuid.NewString())
 	inaccessibleSlug := "inaccessible-" + strings.ToLower(uuid.NewString())
+	accessibleDescription := "Primary app context"
+	inaccessibleDescription := "Internal admin tooling"
 
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM orgs WHERE id = $1`, orgID)
@@ -56,10 +58,10 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO org_memberships (id, user_id, org_id, role) VALUES ($1, $2, $3, 'member')`, orgMembershipID, userID, orgID); err != nil {
 		t.Fatalf("insert org membership: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)`, accessibleProjectID, orgID, "Accessible Project", accessibleSlug); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug, description) VALUES ($1, $2, $3, $4, $5)`, accessibleProjectID, orgID, "Accessible Project", accessibleSlug, accessibleDescription); err != nil {
 		t.Fatalf("insert accessible project: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)`, inaccessibleProjectID, orgID, "Inaccessible Project", inaccessibleSlug); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug, description) VALUES ($1, $2, $3, $4, $5)`, inaccessibleProjectID, orgID, "Inaccessible Project", inaccessibleSlug, inaccessibleDescription); err != nil {
 		t.Fatalf("insert inaccessible project: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO project_memberships (id, user_id, project_id, role) VALUES ($1, $2, $3, 'viewer')`, projectMembershipID, userID, accessibleProjectID); err != nil {
@@ -83,6 +85,7 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 		Projects []struct {
 			ID            string  `json:"id"`
 			Name          string  `json:"name"`
+			Description   *string `json:"description"`
 			IsMember      bool    `json:"is_member"`
 			EffectiveRole *string `json:"effective_role"`
 			CanOpen       bool    `json:"can_open"`
@@ -97,16 +100,19 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 	}
 
 	results := make(map[string]struct {
+		Description   *string
 		IsMember      bool
 		EffectiveRole *string
 		CanOpen       bool
 	}, len(body.Projects))
 	for _, project := range body.Projects {
 		results[project.ID] = struct {
+			Description   *string
 			IsMember      bool
 			EffectiveRole *string
 			CanOpen       bool
 		}{
+			Description:   project.Description,
 			IsMember:      project.IsMember,
 			EffectiveRole: project.EffectiveRole,
 			CanOpen:       project.CanOpen,
@@ -120,6 +126,9 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 	if accessible.EffectiveRole == nil || *accessible.EffectiveRole != "viewer" {
 		t.Fatalf("accessible effective_role = %v, want viewer", accessible.EffectiveRole)
 	}
+	if accessible.Description == nil || *accessible.Description != accessibleDescription {
+		t.Fatalf("accessible description = %v, want %q", accessible.Description, accessibleDescription)
+	}
 
 	inaccessible := results[inaccessibleProjectID]
 	if inaccessible.IsMember || inaccessible.CanOpen {
@@ -127,5 +136,8 @@ func TestListProjectsIncludesAccessMetadata(t *testing.T) {
 	}
 	if inaccessible.EffectiveRole != nil {
 		t.Fatalf("inaccessible effective_role = %v, want nil", *inaccessible.EffectiveRole)
+	}
+	if inaccessible.Description == nil || *inaccessible.Description != inaccessibleDescription {
+		t.Fatalf("inaccessible description = %v, want %q", inaccessible.Description, inaccessibleDescription)
 	}
 }

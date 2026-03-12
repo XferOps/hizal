@@ -54,6 +54,7 @@ Default operating loop:
 
 ## MCP Tools You Can Use
 
+- list_projects
 - search_context
 - read_context
 - write_context
@@ -80,17 +81,43 @@ Winnow exposes MCP at /mcp and expects a bearer API key in Authorization.
 Project scoping matters:
 
 - Context operations require a project scope.
-- The MCP server reads project scope from the X-Project-ID header.
-- Tool handlers fail if project_id is missing.
+- For MCP tools, pass project_id in tool arguments.
+- Context REST routes still accept project_id query param or X-Project-ID header.
+
+## MCP Setup
+
+JSON MCP client format:
+
+` + "```json" + `
+{
+  "mcpServers": {
+    "winnow": {
+      "url": "https://winnow-api.xferops.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer <agent-api-key>"
+      }
+    }
+  }
+}
+` + "```" + `
+
+Codex CLI config.toml format:
+
+` + "```toml" + `
+[mcp_servers.winnow]
+url = "https://winnow-api.xferops.dev/mcp"
+http_headers = { Authorization = "Bearer <agent-api-key>" }
+` + "```" + `
 
 ## How To Onboard A New Agent
 
 1. Call this onboarding endpoint with your API key.
-2. Inspect available_projects and pick a project if needed.
-3. Use search_context to find architecture, auth, data model, deployment, and recent change context.
-4. Read the top results before touching code.
-5. If foundational context is missing, create it immediately.
-6. At handoff, compact the relevant topic and write a summary chunk for the next agent.
+2. Inspect available_projects or call list_projects and pick a project if needed.
+3. Pass that project_id on MCP tool calls.
+4. Use search_context to find architecture, auth, data model, deployment, and recent change context.
+5. Read the top results before touching code.
+6. If foundational context is missing, create it immediately.
+7. At handoff, compact the relevant topic and write a summary chunk for the next agent.
 
 ## What Good Context Looks Like
 

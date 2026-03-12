@@ -43,8 +43,9 @@ func TestCanonicalDBModelsExist(t *testing.T) {
 			name:  "projects",
 			model: Project{},
 			dbFields: []string{
-				"id", "org_id", "name", "slug", "created_at", "updated_at",
+				"id", "org_id", "name", "slug", "description", "created_at", "updated_at",
 			},
+			pointerFields: []string{"Description"},
 		},
 		{
 			name:  "project_memberships",
