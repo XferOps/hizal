@@ -6,6 +6,88 @@ Skills guide agents through structured workflows, preventing the "dumb zone" and
 
 ---
 
+## Skill: winnow-seed
+
+**Purpose:** Populate a new Winnow project with foundational context from a codebase
+
+**When to use:**
+- A new project has been created but has no chunks
+- A codebase is being onboarded to Winnow for the first time
+- `search_context(query="*")` returns empty or near-empty results
+
+**Philosophy:**
+Seeding is the most important step in Winnow's lifecycle. Without foundational context, all other workflows (research, plan, compact, review) have nothing to build on. An empty project is a cold start for every agent, every session. A well-seeded project lets agents onboard in seconds instead of hours.
+
+### Workflow
+
+```
+1. ASSESS current state
+   └─> search_context(query="*") — empty? Proceed.
+   └─> Already has chunks? Use winnow-research instead.
+
+2. GATHER source material
+   └─> Scan deeply: docs, configs, source code, CI/CD, infra, tests
+   └─> Do NOT skim — read entry points, routers, models, migrations
+
+3. PLAN taxonomy
+   └─> Draft query_key categories before writing anything
+   └─> Recommended: architecture, domain-model, api-routes, auth,
+       database-schema, code-patterns, frontend-patterns, deployment
+   └─> Drop irrelevant categories, add domain-specific ones
+
+4. WRITE chunks systematically
+   └─> One category at a time
+   └─> 500-1500 words per chunk, one concept per chunk
+   └─> Include source_file, gotchas, and related cross-references
+   └─> Multiple chunks per category is fine
+
+5. VERIFY coverage
+   └─> search_context(query="*") — every category has ≥1 chunk
+   └─> No major area is unrepresented
+   └─> related fields form a connected graph
+
+6. REPORT
+   └─> Summarize: total chunks, categories, gaps for future research
+```
+
+### Quality Checklist
+
+Before writing each chunk:
+- [ ] An agent reading only this chunk could start working in this area
+- [ ] Concrete file paths and references are included
+- [ ] At least one gotcha is documented (if any exist)
+- [ ] Related query_keys point to connected topics
+- [ ] No significant overlap with another planned chunk
+
+### Example
+
+```
+New project created for a Go API + React SPA.
+
+1. search_context(query="*")
+   └─> No results — empty project
+
+2. Scan repos:
+   └─> Read go.mod, main.go, router.go, all handlers
+   └─> Read package.json, App.tsx, all pages
+   └─> Read Dockerfile, CI/CD workflows, migrations
+
+3. Plan taxonomy:
+   └─> architecture, domain-model, api-routes, auth,
+       database-schema, code-patterns, frontend-patterns, deployment
+
+4. Write 15 chunks across 8 categories:
+   └─> write_context(query_key="architecture", title="System Architecture Overview", ...)
+   └─> write_context(query_key="domain-model", title="Domain Model and Glossary", ...)
+   └─> ... (one category at a time, methodically)
+
+5. Verify: search_context(query="*") → 15 chunks across all 8 categories ✓
+
+6. Report: "Seeded 15 chunks across 8 categories. Gaps: no test patterns documented yet."
+```
+
+---
+
 ## Skill: winnow-research
 
 **Purpose:** Guide agents to efficiently gather and create context before planning

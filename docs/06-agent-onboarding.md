@@ -121,16 +121,18 @@ When a new agent starts on a project:
 1. Connect to the Winnow MCP server with the agent API key.
 2. Inspect `available_projects` from onboarding or call `list_projects`.
 3. Pass the selected `project_id` on MCP tool calls.
-4. Search for high-level project context first:
+4. **Check if the project has context:** `search_context(query="*", limit=5)`.
+5. **If the project is empty or sparse, use the `winnow-seed` skill first.** This is the most critical step — without foundational context, all other workflows have nothing to build on. The seed skill walks you through scanning the codebase, planning a taxonomy, and writing structured chunks.
+6. If context exists, search for high-level project context first:
    - architecture
    - auth
    - data model
    - deployment
    - current roadmap or recent changes
-5. Read the top results and build a mental model before touching code.
-6. If foundational context is missing, create it immediately.
-7. During work, keep chunks narrow and factual. One chunk should usually describe one concept, subsystem, flow, or decision.
-8. At handoff, compact the relevant topic and write a summary chunk for the next agent.
+7. Read the top results and build a mental model before touching code.
+8. If foundational context is missing in specific areas, create it immediately using `winnow-research`.
+9. During work, keep chunks narrow and factual. One chunk should usually describe one concept, subsystem, flow, or decision.
+10. At handoff, compact the relevant topic and write a summary chunk for the next agent.
 
 ## What Good Context Looks Like
 
@@ -152,6 +154,7 @@ Preferred chunk shape:
 
 ## Recommended Operating Rules For Agents
 
+- **Seed before everything else.** If a project is empty, use `winnow-seed` to populate it. An empty knowledge base makes all other workflows ineffective.
 - Search before writing. Duplicate chunks reduce retrieval quality.
 - Prefer updating an existing chunk over creating a second chunk with overlapping facts.
 - Include concrete file references whenever the knowledge came from the codebase.
@@ -176,15 +179,19 @@ Treat the `skills/` files as workflow intent, not as the exact API contract. Whe
 
 Use Winnow as your first stop for project knowledge. Before exploring the codebase, search existing context and read the most relevant chunks. If context is missing, stale, or incomplete, research the code and write or update structured chunks with file references and gotchas. Before handoff or after a long session, compact the relevant topic and write back a summary. After relying on context to complete work, review its usefulness and correctness.
 
-## High-Value First Chunks To Seed
+## Seeding A New Project
 
-If the knowledge base is still sparse, seed these first:
+If the knowledge base is empty or sparse, use the `winnow-seed` skill. It provides a complete workflow for scanning a codebase and writing structured chunks across a planned taxonomy.
+
+The seed skill will guide you to cover these essential areas:
 
 - Project architecture overview
+- Domain model and entity glossary
 - Authentication and authorization model
-- Org/project/agent/API key relationships
-- MCP request flow and project scoping behavior
-- Data model and migrations overview
-- Deployment and environment configuration
+- API routes and middleware
+- Database schema and migrations
+- Code patterns and conventions
+- Frontend patterns (if applicable)
+- Deployment and CI/CD pipeline
 
-These give a new agent enough structure to become useful quickly.
+These give a new agent enough structure to become useful quickly. See `skills/winnow-seed/SKILL.md` for the full workflow.
