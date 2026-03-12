@@ -29,6 +29,8 @@ make run
 - Keep package boundaries clear: reusable domain logic in `internal/*`, process startup only in `cmd/server`.
 - Use descriptive, lowercase package names and `CamelCase` exported identifiers.
 - Prefer explicit error wrapping (`fmt.Errorf("...: %w", err)`) and early returns.
+- Treat `internal/models` as the canonical package for database-backed types. Every persisted table/column added by migrations must be represented there.
+- When handlers or other packages scan rows from persisted tables, scan into `internal/models` types first. Keep join/aggregate response wrappers local instead of inventing fake DB models.
 
 ## Testing Guidelines
 - Framework: Go standard `testing` package.

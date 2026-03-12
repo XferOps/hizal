@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -107,11 +108,19 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID := uuid.New().String()
+	agent := models.Agent{
+		ID:      uuid.New().String(),
+		OrgID:   orgID,
+		OwnerID: user.ID,
+		Name:    body.Name,
+		Slug:    body.Slug,
+		Type:    body.Type,
+		Status:  "ACTIVE",
+	}
 	_, err := h.pool.Exec(r.Context(), `
 		INSERT INTO agents (id, org_id, owner_id, name, slug, type, description, platform, instance_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-	`, agentID, orgID, user.ID, body.Name, body.Slug, body.Type,
+	`, agent.ID, agent.OrgID, agent.OwnerID, agent.Name, agent.Slug, agent.Type,
 		nullableStr(body.Description), nullableStr(body.Platform), nullableStr(body.InstanceID))
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -123,13 +132,13 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":       agentID,
-		"org_id":   orgID,
-		"owner_id": user.ID,
-		"name":     body.Name,
-		"slug":     body.Slug,
-		"type":     body.Type,
-		"status":   "ACTIVE",
+		"id":       agent.ID,
+		"org_id":   agent.OrgID,
+		"owner_id": agent.OwnerID,
+		"name":     agent.Name,
+		"slug":     agent.Slug,
+		"type":     agent.Type,
+		"status":   agent.Status,
 	})
 }
 
@@ -168,21 +177,31 @@ func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	var agents []agentItem
 	for rows.Next() {
-		var a agentItem
-		var createdAt time.Time
-		var lastActiveAt *time.Time
+		var agent models.Agent
 		if err := rows.Scan(
-			&a.ID, &a.OwnerID, &a.Name, &a.Slug, &a.Type, &a.Description,
-			&a.Status, &a.Platform, &a.InstanceID, &a.IPAddress, &lastActiveAt, &createdAt,
+			&agent.ID, &agent.OwnerID, &agent.Name, &agent.Slug, &agent.Type, &agent.Description,
+			&agent.Status, &agent.Platform, &agent.InstanceID, &agent.IPAddress, &agent.LastActiveAt, &agent.CreatedAt,
 		); err != nil {
 			continue
 		}
-		a.CreatedAt = createdAt.Format(time.RFC3339)
-		if lastActiveAt != nil {
-			s := lastActiveAt.Format(time.RFC3339)
-			a.LastActiveAt = &s
+		item := agentItem{
+			ID:          agent.ID,
+			OwnerID:     agent.OwnerID,
+			Name:        agent.Name,
+			Slug:        agent.Slug,
+			Type:        agent.Type,
+			Description: agent.Description,
+			Status:      agent.Status,
+			Platform:    agent.Platform,
+			InstanceID:  agent.InstanceID,
+			IPAddress:   agent.IPAddress,
+			CreatedAt:   agent.CreatedAt.Format(time.RFC3339),
 		}
-		agents = append(agents, a)
+		if agent.LastActiveAt != nil {
+			s := agent.LastActiveAt.Format(time.RFC3339)
+			item.LastActiveAt = &s
+		}
+		agents = append(agents, item)
 	}
 	if agents == nil {
 		agents = []agentItem{}
@@ -199,19 +218,14 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var (
-		ownerID, name, slug, agentType, status string
-		description, platform, instanceID, ipAddress *string
-		lastActiveAt                                  *time.Time
-		createdAt, updatedAt                          time.Time
-	)
+	var agent models.Agent
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT owner_id, name, slug, type, description, status, platform,
+		SELECT id, org_id, owner_id, name, slug, type, description, status, platform,
 		       instance_id, ip_address, last_active_at, created_at, updated_at
 		FROM agents WHERE id = $1
 	`, agentID).Scan(
-		&ownerID, &name, &slug, &agentType, &description, &status,
-		&platform, &instanceID, &ipAddress, &lastActiveAt, &createdAt, &updatedAt,
+		&agent.ID, &agent.OrgID, &agent.OwnerID, &agent.Name, &agent.Slug, &agent.Type, &agent.Description,
+		&agent.Status, &agent.Platform, &agent.InstanceID, &agent.IPAddress, &agent.LastActiveAt, &agent.CreatedAt, &agent.UpdatedAt,
 	)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "agent not found")
@@ -233,9 +247,13 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var projects []projectRef
 	for rows.Next() {
-		var p projectRef
-		if err := rows.Scan(&p.ID, &p.Name, &p.Slug); err == nil {
-			projects = append(projects, p)
+		var project models.Project
+		if err := rows.Scan(&project.ID, &project.Name, &project.Slug); err == nil {
+			projects = append(projects, projectRef{
+				ID:   project.ID,
+				Name: project.Name,
+				Slug: project.Slug,
+			})
 		}
 	}
 	if projects == nil {
@@ -243,23 +261,23 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"id":         agentID,
-		"org_id":     orgID,
-		"owner_id":   ownerID,
-		"name":       name,
-		"slug":       slug,
-		"type":       agentType,
-		"description": description,
-		"status":     status,
-		"platform":   platform,
-		"instance_id": instanceID,
-		"ip_address": ipAddress,
-		"projects":   projects,
-		"created_at": createdAt.Format(time.RFC3339),
-		"updated_at": updatedAt.Format(time.RFC3339),
+		"id":          agent.ID,
+		"org_id":      orgID,
+		"owner_id":    agent.OwnerID,
+		"name":        agent.Name,
+		"slug":        agent.Slug,
+		"type":        agent.Type,
+		"description": agent.Description,
+		"status":      agent.Status,
+		"platform":    agent.Platform,
+		"instance_id": agent.InstanceID,
+		"ip_address":  agent.IPAddress,
+		"projects":    projects,
+		"created_at":  agent.CreatedAt.Format(time.RFC3339),
+		"updated_at":  agent.UpdatedAt.Format(time.RFC3339),
 	}
-	if lastActiveAt != nil {
-		s := lastActiveAt.Format(time.RFC3339)
+	if agent.LastActiveAt != nil {
+		s := agent.LastActiveAt.Format(time.RFC3339)
 		resp["last_active_at"] = s
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -343,8 +361,8 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify owner has access to this project (org owner bypass is handled inside).
-	var orgID string
-	err = h.pool.QueryRow(r.Context(), `SELECT org_id FROM projects WHERE id = $1`, body.ProjectID).Scan(&orgID)
+	var project models.Project
+	err = h.pool.QueryRow(r.Context(), `SELECT id, org_id FROM projects WHERE id = $1`, body.ProjectID).Scan(&project.ID, &project.OrgID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "PROJECT_NOT_FOUND", "project not found")
 		return
@@ -352,7 +370,7 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 
 	var ownerOrgRole string
 	_ = h.pool.QueryRow(r.Context(),
-		`SELECT role FROM org_memberships WHERE user_id = $1 AND org_id = $2`, ownerID, orgID,
+		`SELECT role FROM org_memberships WHERE user_id = $1 AND org_id = $2`, ownerID, project.OrgID,
 	).Scan(&ownerOrgRole)
 
 	if ownerOrgRole != "owner" {
@@ -410,4 +428,3 @@ func nullableStr(s string) *string {
 	}
 	return &s
 }
-

@@ -6,7 +6,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-// Org represents an organization.
+// Org represents a row in the orgs table.
 type Org struct {
 	ID        string    `json:"id" db:"id"`
 	Name      string    `json:"name" db:"name"`
@@ -16,16 +16,17 @@ type Org struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// User represents a user account.
+// User represents a row in the users table.
 type User struct {
-	ID        string    `json:"id" db:"id"`
-	Email     string    `json:"email" db:"email"`
-	Name      string    `json:"name" db:"name"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID           string    `json:"id" db:"id"`
+	Email        string    `json:"email" db:"email"`
+	Name         string    `json:"name" db:"name"`
+	PasswordHash *string   `json:"-" db:"password_hash"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// OrgMembership links a user to an org with a role.
+// OrgMembership represents a row in the org_memberships table.
 type OrgMembership struct {
 	ID        string    `json:"id" db:"id"`
 	UserID    string    `json:"user_id" db:"user_id"`
@@ -34,7 +35,7 @@ type OrgMembership struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-// Project represents a project within an org.
+// Project represents a row in the projects table.
 type Project struct {
 	ID        string    `json:"id" db:"id"`
 	OrgID     string    `json:"org_id" db:"org_id"`
@@ -44,7 +45,7 @@ type Project struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// ProjectMembership links a user to a project with a role.
+// ProjectMembership represents a row in the project_memberships table.
 type ProjectMembership struct {
 	ID        string    `json:"id" db:"id"`
 	UserID    string    `json:"user_id" db:"user_id"`
@@ -53,57 +54,99 @@ type ProjectMembership struct {
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
-// APIKey represents an API key for accessing the Winnow API.
+// Agent represents a row in the agents table.
+type Agent struct {
+	ID           string     `json:"id" db:"id"`
+	OrgID        string     `json:"org_id" db:"org_id"`
+	OwnerID      string     `json:"owner_id" db:"owner_id"`
+	Name         string     `json:"name" db:"name"`
+	Slug         string     `json:"slug" db:"slug"`
+	Type         string     `json:"type" db:"type"`
+	Description  *string    `json:"description,omitempty" db:"description"`
+	Status       string     `json:"status" db:"status"`
+	Platform     *string    `json:"platform,omitempty" db:"platform"`
+	InstanceID   *string    `json:"instance_id,omitempty" db:"instance_id"`
+	IPAddress    *string    `json:"ip_address,omitempty" db:"ip_address"`
+	LastActiveAt *time.Time `json:"last_active_at,omitempty" db:"last_active_at"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// AgentProject represents a row in the agent_projects table.
+type AgentProject struct {
+	AgentID   string `json:"agent_id" db:"agent_id"`
+	ProjectID string `json:"project_id" db:"project_id"`
+}
+
+// APIKey represents a row in the api_keys table.
 type APIKey struct {
-	ID                 string     `json:"id" db:"id"`
-	UserID             string     `json:"user_id" db:"user_id"`
-	KeyHash            string     `json:"-" db:"key_hash"`
-	Name               string     `json:"name" db:"name"`
-	ScopeAllProjects   bool       `json:"scope_all_projects" db:"scope_all_projects"`
-	AllowedProjectIDs  []string   `json:"allowed_project_ids" db:"allowed_project_ids"`
-	Permissions        []byte     `json:"permissions" db:"permissions"` // JSONB
-	CreatedAt          time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at" db:"updated_at"`
-	LastUsedAt         *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
+	ID                string     `json:"id" db:"id"`
+	UserID            *string    `json:"user_id,omitempty" db:"user_id"`
+	KeyHash           string     `json:"-" db:"key_hash"`
+	Name              string     `json:"name" db:"name"`
+	ScopeAllProjects  bool       `json:"scope_all_projects" db:"scope_all_projects"`
+	AllowedProjectIDs []string   `json:"allowed_project_ids" db:"allowed_project_ids"`
+	Permissions       []byte     `json:"permissions" db:"permissions"` // JSONB
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+	LastUsedAt        *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
+	OwnerType         string     `json:"owner_type" db:"owner_type"`
+	AgentID           *string    `json:"agent_id,omitempty" db:"agent_id"`
+	OrgID             *string    `json:"org_id,omitempty" db:"org_id"`
 }
 
-// ContextChunk is the core unit of stored context for AI coding agents.
+// ContextChunk represents a row in the context_chunks table.
 type ContextChunk struct {
-	ID              string         `json:"id" db:"id"`
-	ProjectID       string         `json:"project_id" db:"project_id"`
-	QueryKey        string         `json:"query_key" db:"query_key"`
-	Title           string         `json:"title" db:"title"`
-	Content         []byte         `json:"content" db:"content"`         // JSONB
-	Embedding       pgvector.Vector `json:"embedding,omitempty" db:"embedding"`
-	SourceFile      string         `json:"source_file,omitempty" db:"source_file"`
-	SourceLines     []byte         `json:"source_lines" db:"source_lines"` // JSONB
-	Gotchas         []byte         `json:"gotchas" db:"gotchas"`           // JSONB
-	Related         []byte         `json:"related" db:"related"`           // JSONB
-	CreatedByAgent  string         `json:"created_by_agent,omitempty" db:"created_by_agent"`
-	CreatedAt       time.Time      `json:"created_at" db:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at" db:"updated_at"`
+	ID             string          `json:"id" db:"id"`
+	ProjectID      string          `json:"project_id" db:"project_id"`
+	QueryKey       string          `json:"query_key" db:"query_key"`
+	Title          string          `json:"title" db:"title"`
+	Content        []byte          `json:"content" db:"content"` // JSONB
+	Embedding      pgvector.Vector `json:"embedding,omitempty" db:"embedding"`
+	SourceFile     *string         `json:"source_file,omitempty" db:"source_file"`
+	SourceLines    []byte          `json:"source_lines" db:"source_lines"` // JSONB
+	Gotchas        []byte          `json:"gotchas" db:"gotchas"`           // JSONB
+	Related        []byte          `json:"related" db:"related"`           // JSONB
+	CreatedByAgent *string         `json:"created_by_agent,omitempty" db:"created_by_agent"`
+	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
 }
 
-// ContextVersion records a historical version of a context chunk.
+// ContextVersion represents a row in the context_versions table.
 type ContextVersion struct {
 	ID            string    `json:"id" db:"id"`
 	ChunkID       string    `json:"chunk_id" db:"chunk_id"`
 	Version       int       `json:"version" db:"version"`
-	Content       []byte    `json:"content" db:"content"`         // JSONB
-	ChangeNote    string    `json:"change_note,omitempty" db:"change_note"`
+	Content       []byte    `json:"content" db:"content"` // JSONB
+	ChangeNote    *string   `json:"change_note,omitempty" db:"change_note"`
 	CompactedFrom []byte    `json:"compacted_from" db:"compacted_from"` // JSONB
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 }
 
-// ContextReview records agent feedback on a context chunk's quality.
+// ContextReview represents a row in the context_reviews table.
 type ContextReview struct {
 	ID              string    `json:"id" db:"id"`
 	ChunkID         string    `json:"chunk_id" db:"chunk_id"`
-	Task            string    `json:"task,omitempty" db:"task"`
-	Usefulness      int       `json:"usefulness" db:"usefulness"`
-	UsefulnessNote  string    `json:"usefulness_note,omitempty" db:"usefulness_note"`
-	Correctness     int       `json:"correctness" db:"correctness"`
-	CorrectnessNote string    `json:"correctness_note,omitempty" db:"correctness_note"`
-	Action          string    `json:"action,omitempty" db:"action"`
+	Task            *string   `json:"task,omitempty" db:"task"`
+	Usefulness      *int      `json:"usefulness,omitempty" db:"usefulness"`
+	UsefulnessNote  *string   `json:"usefulness_note,omitempty" db:"usefulness_note"`
+	Correctness     *int      `json:"correctness,omitempty" db:"correctness"`
+	CorrectnessNote *string   `json:"correctness_note,omitempty" db:"correctness_note"`
+	Action          *string   `json:"action,omitempty" db:"action"`
 	CreatedAt       time.Time `json:"created_at" db:"created_at"`
+}
+
+// UsageSnapshot represents a row in the usage_snapshots table.
+type UsageSnapshot struct {
+	ID               string    `json:"id" db:"id"`
+	OrgID            string    `json:"org_id" db:"org_id"`
+	ProjectID        *string   `json:"project_id,omitempty" db:"project_id"`
+	Date             time.Time `json:"date" db:"date"`
+	APICalls         int64     `json:"api_calls" db:"api_calls"`
+	ChunksCreated    int64     `json:"chunks_created" db:"chunks_created"`
+	ChunksRead       int64     `json:"chunks_read" db:"chunks_read"`
+	VersionsCreated  int64     `json:"versions_created" db:"versions_created"`
+	ReviewsSubmitted int64     `json:"reviews_submitted" db:"reviews_submitted"`
+	CreatedAt        time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at" db:"updated_at"`
 }

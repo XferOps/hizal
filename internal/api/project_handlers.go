@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,10 +37,10 @@ func (h *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var projectID string
+	var project models.Project
 	err := h.pool.QueryRow(r.Context(), `
-		INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id
-	`, orgID, body.Name, body.Slug).Scan(&projectID)
+		INSERT INTO projects (org_id, name, slug) VALUES ($1, $2, $3) RETURNING id, org_id, name, slug
+	`, orgID, body.Name, body.Slug).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a project with that slug already exists in this org")
@@ -50,10 +51,10 @@ func (h *ProjectHandlers) CreateProject(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":     projectID,
-		"org_id": orgID,
-		"name":   body.Name,
-		"slug":   body.Slug,
+		"id":     project.ID,
+		"org_id": project.OrgID,
+		"name":   project.Name,
+		"slug":   project.Slug,
 	})
 }
 
@@ -83,13 +84,17 @@ func (h *ProjectHandlers) ListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	var projects []projectItem
 	for rows.Next() {
-		var p projectItem
-		var createdAt time.Time
-		if err := rows.Scan(&p.ID, &p.OrgID, &p.Name, &p.Slug, &createdAt); err != nil {
+		var project models.Project
+		if err := rows.Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug, &project.CreatedAt); err != nil {
 			continue
 		}
-		p.CreatedAt = createdAt.Format(time.RFC3339)
-		projects = append(projects, p)
+		projects = append(projects, projectItem{
+			ID:        project.ID,
+			OrgID:     project.OrgID,
+			Name:      project.Name,
+			Slug:      project.Slug,
+			CreatedAt: project.CreatedAt.Format(time.RFC3339),
+		})
 	}
 	if projects == nil {
 		projects = []projectItem{}
@@ -102,8 +107,8 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 	projectID := chi.URLParam(r, "id")
 
 	// Look up orgID for this project
-	var orgID string
-	err := h.pool.QueryRow(r.Context(), `SELECT org_id FROM projects WHERE id = $1`, projectID).Scan(&orgID)
+	var project models.Project
+	err := h.pool.QueryRow(r.Context(), `SELECT id, org_id FROM projects WHERE id = $1`, projectID).Scan(&project.ID, &project.OrgID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "project not found")
@@ -113,7 +118,7 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+	if _, err := requireOrgRole(r, h.pool, project.OrgID, "owner", "admin"); err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 		return
 	}
@@ -126,11 +131,11 @@ func (h *ProjectHandlers) UpdateProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	_, err = h.pool.Exec(r.Context(), `UPDATE projects SET name = $1, updated_at = NOW() WHERE id = $2`, body.Name, projectID)
+	_, err = h.pool.Exec(r.Context(), `UPDATE projects SET name = $1, updated_at = NOW() WHERE id = $2`, body.Name, project.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{"id": projectID, "org_id": orgID, "name": body.Name})
+	writeJSON(w, http.StatusOK, map[string]interface{}{"id": project.ID, "org_id": project.OrgID, "name": body.Name})
 }

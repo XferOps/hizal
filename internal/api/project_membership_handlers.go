@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -26,14 +27,16 @@ func requireProjectAccess(r *http.Request, pool *pgxpool.Pool, projectID string,
 	}
 
 	// Resolve org for this project.
+	var project models.Project
 	if err := pool.QueryRow(r.Context(),
-		`SELECT org_id FROM projects WHERE id = $1`, projectID,
-	).Scan(&orgID); err != nil {
+		`SELECT id, org_id FROM projects WHERE id = $1`, projectID,
+	).Scan(&project.ID, &project.OrgID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", "", errors.New("project not found")
 		}
 		return "", "", err
 	}
+	orgID = project.OrgID
 
 	// Org owners bypass explicit project membership.
 	var orgRole string
@@ -126,8 +129,8 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 	}
 
 	// Target user must exist.
-	var userID string
-	err = h.pool.QueryRow(r.Context(), `SELECT id FROM users WHERE email = $1`, body.Email).Scan(&userID)
+	var user models.User
+	err = h.pool.QueryRow(r.Context(), `SELECT id, email FROM users WHERE email = $1`, body.Email).Scan(&user.ID, &user.Email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "no user with that email")
@@ -140,7 +143,7 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 	// Target user must be a member of the org first.
 	var orgMemberRole string
 	err = h.pool.QueryRow(r.Context(),
-		`SELECT role FROM org_memberships WHERE user_id = $1 AND org_id = $2`, userID, orgID,
+		`SELECT role FROM org_memberships WHERE user_id = $1 AND org_id = $2`, user.ID, orgID,
 	).Scan(&orgMemberRole)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "NOT_ORG_MEMBER", "user must be an org member before being added to a project")
@@ -152,16 +155,16 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 		INSERT INTO project_memberships (id, user_id, project_id, role)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (user_id, project_id) DO UPDATE SET role = EXCLUDED.role
-	`, membershipID, userID, projectID, body.Role)
+	`, membershipID, user.ID, projectID, body.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"user_id":    userID,
+		"user_id":    user.ID,
 		"project_id": projectID,
-		"email":      body.Email,
+		"email":      user.Email,
 		"role":       body.Role,
 	})
 }
@@ -197,11 +200,15 @@ func (h *ProjectMembershipHandlers) ListMembers(w http.ResponseWriter, r *http.R
 	}
 	var members []memberItem
 	for rows.Next() {
+		var user models.User
 		var m memberItem
 		var joinedAt time.Time
-		if err := rows.Scan(&m.ID, &m.Email, &m.Name, &m.Role, &joinedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &m.Role, &joinedAt); err != nil {
 			continue
 		}
+		m.ID = user.ID
+		m.Email = user.Email
+		m.Name = user.Name
 		m.JoinedAt = joinedAt.Format(time.RFC3339)
 		members = append(members, m)
 	}

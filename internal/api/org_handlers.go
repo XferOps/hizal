@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -64,10 +65,10 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 
-	var orgID string
+	var org models.Org
 	err = tx.QueryRow(r.Context(), `
-		INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING id
-	`, body.Name, body.Slug).Scan(&orgID)
+		INSERT INTO orgs (name, slug) VALUES ($1, $2) RETURNING id, name, slug
+	`, body.Name, body.Slug).Scan(&org.ID, &org.Name, &org.Slug)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an org with that slug already exists")
@@ -79,7 +80,7 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 
 	_, err = tx.Exec(r.Context(), `
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')
-	`, user.ID, orgID)
+	`, user.ID, org.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -91,9 +92,9 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":   orgID,
-		"name": body.Name,
-		"slug": body.Slug,
+		"id":   org.ID,
+		"name": org.Name,
+		"slug": org.Slug,
 		"role": "owner",
 	})
 }
@@ -106,7 +107,15 @@ func (h *OrgHandlers) ListOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT o.id, o.name, o.slug, o.tier, o.created_at, om.role
+		SELECT
+			o.id,
+			o.name,
+			o.slug,
+			o.tier,
+			o.created_at,
+			om.role,
+			(SELECT COUNT(*) FROM org_memberships om2 WHERE om2.org_id = o.id) AS member_count,
+			(SELECT COUNT(*) FROM projects p WHERE p.org_id = o.id) AS project_count
 		FROM orgs o
 		JOIN org_memberships om ON om.org_id = o.id
 		WHERE om.user_id = $1
@@ -119,22 +128,28 @@ func (h *OrgHandlers) ListOrgs(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type orgItem struct {
-		ID        string `json:"id"`
-		Name      string `json:"name"`
-		Slug      string `json:"slug"`
-		Tier      string `json:"tier"`
-		CreatedAt string `json:"created_at"`
-		Role      string `json:"role"`
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		Slug         string `json:"slug"`
+		Tier         string `json:"tier"`
+		CreatedAt    string `json:"created_at"`
+		Role         string `json:"role"`
+		MemberCount  int64  `json:"member_count"`
+		ProjectCount int64  `json:"project_count"`
 	}
 	var orgs []orgItem
 	for rows.Next() {
-		var o orgItem
-		var createdAt time.Time
-		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Tier, &createdAt, &o.Role); err != nil {
+		var org models.Org
+		var item orgItem
+		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &org.Tier, &org.CreatedAt, &item.Role, &item.MemberCount, &item.ProjectCount); err != nil {
 			continue
 		}
-		o.CreatedAt = createdAt.Format(time.RFC3339)
-		orgs = append(orgs, o)
+		item.ID = org.ID
+		item.Name = org.Name
+		item.Slug = org.Slug
+		item.Tier = org.Tier
+		item.CreatedAt = org.CreatedAt.Format(time.RFC3339)
+		orgs = append(orgs, item)
 	}
 	if orgs == nil {
 		orgs = []orgItem{}
@@ -161,8 +176,8 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var orgName, orgSlug, orgTier string
-	err = h.pool.QueryRow(r.Context(), `SELECT name, slug, tier FROM orgs WHERE id = $1`, orgID).Scan(&orgName, &orgSlug, &orgTier)
+	var org models.Org
+	err = h.pool.QueryRow(r.Context(), `SELECT id, name, slug, tier FROM orgs WHERE id = $1`, orgID).Scan(&org.ID, &org.Name, &org.Slug, &org.Tier)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "org not found")
@@ -187,19 +202,23 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	type member struct {
-		ID        string `json:"id"`
-		Email     string `json:"email"`
-		Name      string `json:"name"`
-		Role      string `json:"role"`
-		JoinedAt  string `json:"joined_at"`
+		ID       string `json:"id"`
+		Email    string `json:"email"`
+		Name     string `json:"name"`
+		Role     string `json:"role"`
+		JoinedAt string `json:"joined_at"`
 	}
 	var members []member
 	for rows.Next() {
+		var user models.User
 		var m member
 		var joinedAt time.Time
-		if err := rows.Scan(&m.ID, &m.Email, &m.Name, &m.Role, &joinedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.Name, &m.Role, &joinedAt); err != nil {
 			continue
 		}
+		m.ID = user.ID
+		m.Email = user.Email
+		m.Name = user.Name
 		m.JoinedAt = joinedAt.Format(time.RFC3339)
 		members = append(members, m)
 	}
@@ -208,10 +227,10 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":      orgID,
-		"name":    orgName,
-		"slug":    orgSlug,
-		"tier":    orgTier,
+		"id":      org.ID,
+		"name":    org.Name,
+		"slug":    org.Slug,
+		"tier":    org.Tier,
 		"role":    callerRole,
 		"members": members,
 	})
@@ -266,8 +285,8 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find user by email
-	var userID string
-	err := h.pool.QueryRow(r.Context(), `SELECT id FROM users WHERE email = $1`, body.Email).Scan(&userID)
+	var user models.User
+	err := h.pool.QueryRow(r.Context(), `SELECT id, email FROM users WHERE email = $1`, body.Email).Scan(&user.ID, &user.Email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "no user with that email")
@@ -280,16 +299,16 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 	_, err = h.pool.Exec(r.Context(), `
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, $3)
 		ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
-	`, userID, orgID, body.Role)
+	`, user.ID, orgID, body.Role)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"user_id": userID,
+		"user_id": user.ID,
 		"org_id":  orgID,
-		"email":   body.Email,
+		"email":   user.Email,
 		"role":    body.Role,
 	})
 }

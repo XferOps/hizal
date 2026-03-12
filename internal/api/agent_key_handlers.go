@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/XferOps/winnow/internal/auth"
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -35,10 +36,10 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 	}
 
 	// Resolve agent's org_id for denormalized storage on the key row.
-	var agentOrgID string
+	var agent models.Agent
 	if err := h.pool.QueryRow(r.Context(),
-		`SELECT org_id FROM agents WHERE id = $1`, agentID,
-	).Scan(&agentOrgID); err != nil {
+		`SELECT id, org_id FROM agents WHERE id = $1`, agentID,
+	).Scan(&agent.ID, &agent.OrgID); err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", "failed to resolve agent org")
 		return
 	}
@@ -49,19 +50,19 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var keyID string
+	var key models.APIKey
 	err = h.pool.QueryRow(r.Context(), `
 		INSERT INTO api_keys (owner_type, agent_id, org_id, key_hash, name, scope_all_projects, allowed_project_ids)
 		VALUES ('AGENT', $1, $2, $3, $4, FALSE, '{}')
 		RETURNING id
-	`, agentID, agentOrgID, keyHash, body.Name).Scan(&keyID)
+	`, agentID, agent.OrgID, keyHash, body.Name).Scan(&key.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":       keyID,
+		"id":       key.ID,
 		"key":      plaintext,
 		"name":     body.Name,
 		"agent_id": agentID,
@@ -97,15 +98,17 @@ func (h *AgentKeyHandlers) ListAgentKeys(w http.ResponseWriter, r *http.Request)
 	}
 	var keys []keyItem
 	for rows.Next() {
-		var k keyItem
-		var createdAt time.Time
-		var lastUsed *time.Time
-		if err := rows.Scan(&k.ID, &k.Name, &createdAt, &lastUsed); err != nil {
+		var key models.APIKey
+		if err := rows.Scan(&key.ID, &key.Name, &key.CreatedAt, &key.LastUsedAt); err != nil {
 			continue
 		}
-		k.CreatedAt = createdAt.Format(time.RFC3339)
-		if lastUsed != nil {
-			s := lastUsed.Format(time.RFC3339)
+		k := keyItem{
+			ID:        key.ID,
+			Name:      key.Name,
+			CreatedAt: key.CreatedAt.Format(time.RFC3339),
+		}
+		if key.LastUsedAt != nil {
+			s := key.LastUsedAt.Format(time.RFC3339)
 			k.LastUsedAt = &s
 		}
 		keys = append(keys, k)

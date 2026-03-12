@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -38,12 +39,12 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID string
+	var user models.User
 	err = h.pool.QueryRow(r.Context(), `
 		INSERT INTO users (email, name, password_hash)
 		VALUES ($1, $2, $3)
-		RETURNING id
-	`, body.Email, body.Name, string(hash)).Scan(&userID)
+		RETURNING id, email, name
+	`, body.Email, body.Name, string(hash)).Scan(&user.ID, &user.Email, &user.Name)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "a user with that email already exists")
@@ -53,7 +54,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := SignJWT(userID, body.Email)
+	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
 		return
@@ -61,9 +62,9 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"token":   token,
-		"user_id": userID,
-		"email":   body.Email,
-		"name":    body.Name,
+		"user_id": user.ID,
+		"email":   user.Email,
+		"name":    user.Name,
 	})
 }
 
@@ -78,10 +79,11 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userID, name, hash string
+	var user models.User
+	var hash string
 	err := h.pool.QueryRow(r.Context(), `
-		SELECT id, name, COALESCE(password_hash, '') FROM users WHERE email = $1
-	`, body.Email).Scan(&userID, &name, &hash)
+		SELECT id, email, name, COALESCE(password_hash, '') FROM users WHERE email = $1
+	`, body.Email).Scan(&user.ID, &user.Email, &user.Name, &hash)
 	if err != nil || hash == "" {
 		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid email or password")
 		return
@@ -92,7 +94,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := SignJWT(userID, body.Email)
+	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
 		return
@@ -100,9 +102,9 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"token":   token,
-		"user_id": userID,
-		"email":   body.Email,
-		"name":    name,
+		"user_id": user.ID,
+		"email":   user.Email,
+		"name":    user.Name,
 	})
 }
 
@@ -114,8 +116,8 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var name string
-	err := h.pool.QueryRow(r.Context(), `SELECT name FROM users WHERE id = $1`, user.ID).Scan(&name)
+	var dbUser models.User
+	err := h.pool.QueryRow(r.Context(), `SELECT id, email, name FROM users WHERE id = $1`, user.ID).Scan(&dbUser.ID, &dbUser.Email, &dbUser.Name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
 		return
@@ -143,20 +145,26 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 	}
 	var orgs []orgItem
 	for rows.Next() {
-		var o orgItem
-		if err := rows.Scan(&o.ID, &o.Name, &o.Slug, &o.Role); err != nil {
+		var org models.Org
+		var role string
+		if err := rows.Scan(&org.ID, &org.Name, &org.Slug, &role); err != nil {
 			continue
 		}
-		orgs = append(orgs, o)
+		orgs = append(orgs, orgItem{
+			ID:   org.ID,
+			Name: org.Name,
+			Slug: org.Slug,
+			Role: role,
+		})
 	}
 	if orgs == nil {
 		orgs = []orgItem{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":    user.ID,
-		"email": user.Email,
-		"name":  name,
+		"id":    dbUser.ID,
+		"email": dbUser.Email,
+		"name":  dbUser.Name,
 		"orgs":  orgs,
 	})
 }
