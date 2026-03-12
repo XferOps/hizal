@@ -7,6 +7,7 @@ import (
 
 	"github.com/XferOps/winnow/internal/auth"
 	"github.com/XferOps/winnow/internal/mcp"
+	"github.com/XferOps/winnow/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -188,12 +189,12 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Get or create org
-	var orgID string
+	var org models.Org
 	err = h.pool.QueryRow(ctx, `
 		INSERT INTO orgs (name, slug) VALUES ($1, $2)
 		ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id
-	`, body.OrgSlug, body.OrgSlug).Scan(&orgID)
+		RETURNING id, name, slug
+	`, body.OrgSlug, body.OrgSlug).Scan(&org.ID, &org.Name, &org.Slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -201,12 +202,12 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	// Get or create bot user for this org
 	botEmail := "agent-" + body.OrgSlug + "@winnow.local"
-	var userID string
+	var user models.User
 	err = h.pool.QueryRow(ctx, `
 		INSERT INTO users (email, name) VALUES ($1, $2)
 		ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id
-	`, botEmail, "Agent Bot ("+body.OrgSlug+")").Scan(&userID)
+		RETURNING id, email, name
+	`, botEmail, "Agent Bot ("+body.OrgSlug+")").Scan(&user.ID, &user.Email, &user.Name)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
@@ -216,37 +217,37 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.pool.Exec(ctx, `
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'admin')
 		ON CONFLICT (user_id, org_id) DO NOTHING
-	`, userID, orgID)
+	`, user.ID, org.ID)
 
 	// Create default project
-	var projectID string
+	var project models.Project
 	err = h.pool.QueryRow(ctx, `
 		INSERT INTO projects (org_id, name, slug) VALUES ($1, 'Default', 'default')
 		ON CONFLICT (org_id, slug) DO UPDATE SET name = EXCLUDED.name
-		RETURNING id
-	`, orgID).Scan(&projectID)
+		RETURNING id, org_id, name, slug
+	`, org.ID).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
 	// Create API key
-	var keyID string
+	var key models.APIKey
 	err = h.pool.QueryRow(ctx, `
-		INSERT INTO api_keys (user_id, key_hash, name, scope_all_projects, allowed_project_ids)
-		VALUES ($1, $2, $3, true, '{}')
+		INSERT INTO api_keys (owner_type, user_id, org_id, key_hash, name, scope_all_projects, allowed_project_ids)
+		VALUES ($1, $2, $3, $4, $5, true, '{}')
 		RETURNING id
-	`, userID, keyHash, body.KeyName).Scan(&keyID)
+	`, "USER", user.ID, org.ID, keyHash, body.KeyName).Scan(&key.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"id":         keyID,
+		"id":         key.ID,
 		"key":        plaintext,
-		"org_id":     orgID,
-		"project_id": projectID,
+		"org_id":     org.ID,
+		"project_id": project.ID,
 		"note":       "Store this key securely — it will not be shown again.",
 	})
 }

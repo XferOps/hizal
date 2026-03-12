@@ -136,3 +136,10 @@ GET    /health                # health check
 ## Development
 
 **v0.1** — Production API live at `winnow-api.xferops.dev`. Self-service key management UI coming in v0.2.
+
+### Database Model Contract
+
+- `internal/models` is the canonical package for database-backed types.
+- Every table and column introduced by `internal/db/migrations/` must be reflected in `internal/models`.
+- When API handlers or other packages scan rows from persisted tables, prefer scanning into `internal/models` types first.
+- Keep join, aggregate, and transport-only response structs local to the package that serves them; do not add those shapes to `internal/models`.

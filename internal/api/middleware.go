@@ -42,22 +42,20 @@ func APIKeyAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			plaintext := strings.TrimPrefix(authHeader, "Bearer ")
 			keyHash := auth.HashKey(plaintext)
 
-			// Look up the key + get org via user membership
+			// Look up the key — org_id is denormalized so no JOIN needed.
 			row := pool.QueryRow(r.Context(), `
-				SELECT ak.id, ak.scope_all_projects, ak.allowed_project_ids, om.org_id
-				FROM api_keys ak
-				JOIN users u ON u.id = ak.user_id
-				JOIN org_memberships om ON om.user_id = u.id
-				WHERE ak.key_hash = $1
+				SELECT id, org_id, scope_all_projects, allowed_project_ids
+				FROM api_keys
+				WHERE key_hash = $1
 			`, keyHash)
 
 			var (
 				keyID      string
+				orgID      string
 				scopeAll   bool
 				allowedIDs []string
-				orgID      string
 			)
-			if err := row.Scan(&keyID, &scopeAll, &allowedIDs, &orgID); err != nil {
+			if err := row.Scan(&keyID, &orgID, &scopeAll, &allowedIDs); err != nil {
 				writeAuthError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid API key")
 				return
 			}
