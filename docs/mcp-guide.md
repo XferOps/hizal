@@ -8,6 +8,8 @@ Winnow exposes all its functionality as an MCP (Model Context Protocol) server o
 **Transport:** HTTP+SSE (streamable HTTP)  
 **Auth:** `Authorization: Bearer <your-api-key>` header
 
+Call `list_projects` first if the key can access multiple projects. For project-scoped tools, pass `project_id` in the tool arguments.
+
 ---
 
 ## Configuration

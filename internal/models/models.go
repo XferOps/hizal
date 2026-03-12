@@ -37,12 +37,13 @@ type OrgMembership struct {
 
 // Project represents a row in the projects table.
 type Project struct {
-	ID        string    `json:"id" db:"id"`
-	OrgID     string    `json:"org_id" db:"org_id"`
-	Name      string    `json:"name" db:"name"`
-	Slug      string    `json:"slug" db:"slug"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+	ID          string    `json:"id" db:"id"`
+	OrgID       string    `json:"org_id" db:"org_id"`
+	Name        string    `json:"name" db:"name"`
+	Slug        string    `json:"slug" db:"slug"`
+	Description *string   `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // ProjectMembership represents a row in the project_memberships table.

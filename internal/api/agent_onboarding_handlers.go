@@ -17,15 +17,16 @@ func NewAgentOnboardingHandlers(pool *pgxpool.Pool) *AgentOnboardingHandlers {
 }
 
 type onboardingProject struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Slug     string `json:"slug"`
-	Selected bool   `json:"selected"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Description *string `json:"description,omitempty"`
+	Selected    bool    `json:"selected"`
 }
 
 func (h *AgentOnboardingHandlers) buildProjects(r *http.Request, key models.APIKey, selectedProjectID string) ([]onboardingProject, error) {
 	projectRows, err := h.pool.Query(r.Context(), `
-		SELECT p.id, p.name, p.slug
+		SELECT p.id, p.name, p.slug, p.description
 		FROM projects p
 		WHERE p.id = ANY(
 			CASE
@@ -52,14 +53,15 @@ func (h *AgentOnboardingHandlers) buildProjects(r *http.Request, key models.APIK
 	projects := make([]onboardingProject, 0)
 	for projectRows.Next() {
 		var project models.Project
-		if err := projectRows.Scan(&project.ID, &project.Name, &project.Slug); err != nil {
+		if err := projectRows.Scan(&project.ID, &project.Name, &project.Slug, &project.Description); err != nil {
 			continue
 		}
 		projects = append(projects, onboardingProject{
-			ID:       project.ID,
-			Name:     project.Name,
-			Slug:     project.Slug,
-			Selected: project.ID == selectedProjectID,
+			ID:          project.ID,
+			Name:        project.Name,
+			Slug:        project.Slug,
+			Description: project.Description,
+			Selected:    project.ID == selectedProjectID,
 		})
 	}
 	return projects, nil
@@ -86,13 +88,13 @@ func (h *AgentOnboardingHandlers) buildResponse(key models.APIKey, org models.Or
 	}
 	if needsProjectSelection {
 		instructions = append(instructions,
-			"Choose one project from available_projects and send X-Project-ID on subsequent MCP or context requests.")
+			"Choose one project from available_projects, call list_projects if you need refreshed metadata, and pass project_id on subsequent MCP tool calls.")
 	} else if selectedProjectIDPtr != nil {
 		instructions = append(instructions,
-			"Continue using X-Project-ID="+*selectedProjectIDPtr+" on subsequent MCP or context requests.")
+			"Continue using project_id="+*selectedProjectIDPtr+" on subsequent MCP tool calls.")
 	} else if defaultProjectID != nil {
 		instructions = append(instructions,
-			"This API key or agent currently has one available project. Use X-Project-ID="+*defaultProjectID+" on subsequent MCP or context requests.")
+			"This API key or agent currently has one available project. Use project_id="+*defaultProjectID+" on subsequent MCP tool calls.")
 	}
 
 	startQueries := []string{
@@ -136,6 +138,7 @@ func (h *AgentOnboardingHandlers) buildResponse(key models.APIKey, org models.Or
 		"recommended_start_queries": startQueries,
 		"tooling": map[string]interface{}{
 			"implemented_tools": []string{
+				"list_projects",
 				"search_context",
 				"read_context",
 				"write_context",
@@ -147,8 +150,8 @@ func (h *AgentOnboardingHandlers) buildResponse(key models.APIKey, org models.Or
 			},
 			"required_headers": []string{
 				"Authorization: Bearer <api-key>",
-				"X-Project-ID: <project-id>",
 			},
+			"project_selection": "Pass project_id in MCP tool arguments. Context REST requests still accept project_id query param or X-Project-ID header.",
 		},
 		"instructions": instructions,
 		"chunk_shape": map[string]interface{}{

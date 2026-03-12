@@ -234,25 +234,27 @@ func (h *AgentHandlers) GetAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch assigned projects.
 	rows, _ := h.pool.Query(r.Context(), `
-		SELECT p.id, p.name, p.slug FROM projects p
+		SELECT p.id, p.name, p.slug, p.description FROM projects p
 		JOIN agent_projects ap ON ap.project_id = p.id
 		WHERE ap.agent_id = $1 ORDER BY p.created_at
 	`, agentID)
 	defer rows.Close()
 
 	type projectRef struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
-		Slug string `json:"slug"`
+		ID          string  `json:"id"`
+		Name        string  `json:"name"`
+		Slug        string  `json:"slug"`
+		Description *string `json:"description,omitempty"`
 	}
 	var projects []projectRef
 	for rows.Next() {
 		var project models.Project
-		if err := rows.Scan(&project.ID, &project.Name, &project.Slug); err == nil {
+		if err := rows.Scan(&project.ID, &project.Name, &project.Slug, &project.Description); err == nil {
 			projects = append(projects, projectRef{
-				ID:   project.ID,
-				Name: project.Name,
-				Slug: project.Slug,
+				ID:          project.ID,
+				Name:        project.Name,
+				Slug:        project.Slug,
+				Description: project.Description,
 			})
 		}
 	}

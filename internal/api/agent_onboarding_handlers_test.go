@@ -39,6 +39,7 @@ func TestAgentOnboardingEndpointReturnsAgentProjects(t *testing.T) {
 	apiKeyID := uuid.NewString()
 	orgSlug := "agent-onboard-org-" + strings.ToLower(uuid.NewString())
 	projectSlug := "agent-onboard-project-" + strings.ToLower(uuid.NewString())
+	projectDescription := "Primary product codebase"
 	userEmail := "agent-onboard-" + strings.ToLower(uuid.NewString()) + "@example.com"
 	keyHash := "hash-" + uuid.NewString()
 
@@ -56,7 +57,7 @@ func TestAgentOnboardingEndpointReturnsAgentProjects(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO org_memberships (id, user_id, org_id, role) VALUES ($1, $2, $3, 'member')`, orgMembershipID, userID, orgID); err != nil {
 		t.Fatalf("insert org membership: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)`, projectID, orgID, "Agent Onboarding Project", projectSlug); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug, description) VALUES ($1, $2, $3, $4, $5)`, projectID, orgID, "Agent Onboarding Project", projectSlug, projectDescription); err != nil {
 		t.Fatalf("insert project: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -95,11 +96,17 @@ func TestAgentOnboardingEndpointReturnsAgentProjects(t *testing.T) {
 		SelectedProjectID     *string `json:"selected_project_id"`
 		NeedsProjectSelection bool    `json:"needs_project_selection"`
 		AvailableProjects     []struct {
-			ID       string `json:"id"`
-			Name     string `json:"name"`
-			Slug     string `json:"slug"`
-			Selected bool   `json:"selected"`
+			ID          string  `json:"id"`
+			Name        string  `json:"name"`
+			Slug        string  `json:"slug"`
+			Description *string `json:"description"`
+			Selected    bool    `json:"selected"`
 		} `json:"available_projects"`
+		Tooling struct {
+			ImplementedTools []string `json:"implemented_tools"`
+			RequiredHeaders  []string `json:"required_headers"`
+			ProjectSelection string   `json:"project_selection"`
+		} `json:"tooling"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -122,6 +129,25 @@ func TestAgentOnboardingEndpointReturnsAgentProjects(t *testing.T) {
 	}
 	if body.AvailableProjects[0].ID != projectID || !body.AvailableProjects[0].Selected {
 		t.Fatalf("available_projects[0] = %+v, want selected project", body.AvailableProjects[0])
+	}
+	if body.AvailableProjects[0].Description == nil || *body.AvailableProjects[0].Description != projectDescription {
+		t.Fatalf("available_projects[0].description = %v, want %q", body.AvailableProjects[0].Description, projectDescription)
+	}
+	if len(body.Tooling.RequiredHeaders) != 1 || body.Tooling.RequiredHeaders[0] != "Authorization: Bearer <api-key>" {
+		t.Fatalf("required_headers = %v, want only Authorization", body.Tooling.RequiredHeaders)
+	}
+	if body.Tooling.ProjectSelection == "" || !strings.Contains(body.Tooling.ProjectSelection, "project_id") {
+		t.Fatalf("project_selection = %q, want project_id guidance", body.Tooling.ProjectSelection)
+	}
+	foundListProjects := false
+	for _, tool := range body.Tooling.ImplementedTools {
+		if tool == "list_projects" {
+			foundListProjects = true
+			break
+		}
+	}
+	if !foundListProjects {
+		t.Fatalf("implemented_tools = %v, want list_projects", body.Tooling.ImplementedTools)
 	}
 }
 
@@ -149,6 +175,7 @@ func TestAgentOnboardingJWTEndpointReturnsAgentProjects(t *testing.T) {
 	orgMembershipID := uuid.NewString()
 	orgSlug := "agent-ui-onboard-org-" + strings.ToLower(uuid.NewString())
 	projectSlug := "agent-ui-onboard-project-" + strings.ToLower(uuid.NewString())
+	projectDescription := "UI support project"
 	userEmail := "agent-ui-onboard-" + strings.ToLower(uuid.NewString()) + "@example.com"
 
 	t.Cleanup(func() {
@@ -165,7 +192,7 @@ func TestAgentOnboardingJWTEndpointReturnsAgentProjects(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO org_memberships (id, user_id, org_id, role) VALUES ($1, $2, $3, 'member')`, orgMembershipID, userID, orgID); err != nil {
 		t.Fatalf("insert org membership: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)`, projectID, orgID, "Agent UI Onboarding Project", projectSlug); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug, description) VALUES ($1, $2, $3, $4, $5)`, projectID, orgID, "Agent UI Onboarding Project", projectSlug, projectDescription); err != nil {
 		t.Fatalf("insert project: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -202,8 +229,9 @@ func TestAgentOnboardingJWTEndpointReturnsAgentProjects(t *testing.T) {
 			Slug *string `json:"slug"`
 		} `json:"agent"`
 		AvailableProjects []struct {
-			ID       string `json:"id"`
-			Selected bool   `json:"selected"`
+			ID          string  `json:"id"`
+			Description *string `json:"description"`
+			Selected    bool    `json:"selected"`
 		} `json:"available_projects"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
@@ -226,5 +254,8 @@ func TestAgentOnboardingJWTEndpointReturnsAgentProjects(t *testing.T) {
 	}
 	if len(body.AvailableProjects) != 1 || body.AvailableProjects[0].ID != projectID || body.AvailableProjects[0].Selected {
 		t.Fatalf("available_projects = %+v, want one unselected default project", body.AvailableProjects)
+	}
+	if body.AvailableProjects[0].Description == nil || *body.AvailableProjects[0].Description != projectDescription {
+		t.Fatalf("available_projects[0].description = %v, want %q", body.AvailableProjects[0].Description, projectDescription)
 	}
 }

@@ -118,19 +118,36 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Delete("/v1/keys/{id}", keyH.DeleteKey)
 	})
 
-	// MCP JSON-RPC endpoint (requires API key auth)
-	r.With(APIKeyAuth(pool)).Post("/mcp", func(w http.ResponseWriter, r *http.Request) {
-		if mcpServer == nil {
-			writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
-			return
-		}
-		// Track MCP calls generically as "read" (mixed ops; fine for v0.2)
-		if tracker != nil {
-			if claims, ok := ClaimsFrom(r.Context()); ok {
-				tracker.Track(claims.OrgID, claims.ProjectID, usage.OpRead)
+	// MCP endpoint (requires API key auth). POST serves JSON-RPC requests directly,
+	// while GET/DELETE advertise stateless Streamable HTTP semantics to remote clients.
+	r.With(APIKeyAuth(pool)).Route("/mcp", func(r chi.Router) {
+		r.Method(http.MethodGet, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if mcpServer == nil {
+				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+				return
 			}
-		}
-		mcpServer.ServeHTTP(w, r)
+			mcpServer.ServeHTTP(w, r)
+		}))
+		r.Method(http.MethodPost, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if mcpServer == nil {
+				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+				return
+			}
+			// Track MCP calls generically as "read" (mixed ops; fine for v0.2)
+			if tracker != nil {
+				if claims, ok := ClaimsFrom(r.Context()); ok {
+					tracker.Track(claims.OrgID, claims.ProjectID, usage.OpRead)
+				}
+			}
+			mcpServer.ServeHTTP(w, r)
+		}))
+		r.Method(http.MethodDelete, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if mcpServer == nil {
+				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+				return
+			}
+			mcpServer.ServeHTTP(w, r)
+		}))
 	})
 
 	// Dynamic agent onboarding endpoint (requires API key auth)
