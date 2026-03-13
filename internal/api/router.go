@@ -44,6 +44,10 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	agentOnboardingH := NewAgentOnboardingHandlers(pool)
 	skillH := NewSkillHandlers(pool)
 	keyH := NewKeyHandlers(pool)
+	var seedH *SeedHandlers
+	if pool != nil && h != nil {
+		seedH = NewSeedHandlers(pool, mcpServer.Tools())
+	}
 
 	// ── Auth routes (no auth required for register/login) ──────────────────
 	r.Route("/v1/auth", func(r chi.Router) {
@@ -93,6 +97,9 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Post("/v1/orgs/{id}/projects", projH.CreateProject)
 		r.Get("/v1/orgs/{id}/projects", projH.ListProjects)
 		r.Patch("/v1/projects/{id}", projH.UpdateProject)
+		if seedH != nil {
+			r.Post("/v1/projects/{id}/seed", seedH.SeedProject)
+		}
 
 		// Project memberships
 		r.Post("/v1/projects/{id}/members", projMemberH.AddMember)
