@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/XferOps/winnow/internal/mcp"
 	openai "github.com/sashabaranov/go-openai"
@@ -19,6 +21,8 @@ const (
 	EventComplete EventType = "complete"
 	EventError    EventType = "error"
 )
+
+const categoryTimeout = 20 * time.Second
 
 // Event is a single SSE payload.
 type Event struct {
@@ -53,6 +57,15 @@ type Request struct {
 	GitHubToken string
 	ProjectID   string
 }
+
+type contextWriter interface {
+	WriteContext(ctx context.Context, projectID string, in mcp.WriteContextInput) (*mcp.WriteContextResult, error)
+}
+
+var (
+	fetchFileContentsFunc = fetchFileContents
+	generateChunkFunc     = generateChunk
+)
 
 // Run orchestrates the full auto-seed pipeline, emitting Events to the returned channel.
 // The channel is closed when seeding completes or errors.
@@ -146,41 +159,60 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 			current, total, qk,
 		)
 
-		files := grouped[qk]
-		contents, fetchErr := fetchFileContents(ctx, meta, files, req.GitHubToken)
-		if fetchErr != nil {
-			// Non-fatal: skip this category if files can't be fetched
+		categoryCtx, cancel := context.WithTimeout(ctx, categoryTimeout)
+		ok, err := processCategory(categoryCtx, tools, req.ProjectID, meta, qk, grouped[qk], req.GitHubToken, llm)
+		cancel()
+		if err != nil {
+			log.Printf("seed: skipping category=%s repo=%s/%s: %v", qk, meta.Owner, meta.Repo, err)
 			continue
 		}
-		if len(contents) == 0 {
-			continue
+		if ok {
+			written++
+			writtenCats = append(writtenCats, qk)
 		}
-
-		chunk, genErr := generateChunk(ctx, llm, meta, qk, contents)
-		if genErr != nil {
-			// Non-fatal: skip this category if LLM fails
-			continue
-		}
-
-		_, writeErr := tools.WriteContext(ctx, req.ProjectID, mcp.WriteContextInput{
-			QueryKey: qk,
-			Title:    chunk.Title,
-			Content:  chunk.Content,
-			Gotchas:  chunk.Gotchas,
-			Related:  chunk.Related,
-		})
-		if writeErr != nil {
-			continue
-		}
-
-		written++
-		writtenCats = append(writtenCats, qk)
 	}
 
 	emit(ch, EventComplete, CompleteData{
 		ChunksWritten: written,
 		Categories:    writtenCats,
 	})
+}
+
+func processCategory(
+	ctx context.Context,
+	writer contextWriter,
+	projectID string,
+	meta *RepoMeta,
+	queryKey string,
+	files []SelectedFile,
+	githubToken string,
+	llm *openai.Client,
+) (bool, error) {
+	contents, err := fetchFileContentsFunc(ctx, meta, files, githubToken)
+	if err != nil {
+		return false, fmt.Errorf("fetch file contents: %w", err)
+	}
+	if len(contents) == 0 {
+		return false, nil
+	}
+
+	chunk, err := generateChunkFunc(ctx, llm, meta, queryKey, contents)
+	if err != nil {
+		return false, fmt.Errorf("generate chunk: %w", err)
+	}
+
+	_, err = writer.WriteContext(ctx, projectID, mcp.WriteContextInput{
+		QueryKey: queryKey,
+		Title:    chunk.Title,
+		Content:  chunk.Content,
+		Gotchas:  chunk.Gotchas,
+		Related:  chunk.Related,
+	})
+	if err != nil {
+		return false, fmt.Errorf("write context: %w", err)
+	}
+
+	return true, nil
 }
 
 // fetchFileContents reads the content of each selected file, returning path->content pairs.

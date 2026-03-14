@@ -42,10 +42,12 @@ func main() {
 	router := api.NewRouter(pool, embed)
 
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%s", port),
-		Handler:      router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:        fmt.Sprintf(":%s", port),
+		Handler:     router,
+		ReadTimeout: 15 * time.Second,
+		// SSE endpoints can legitimately stay open while incremental progress
+		// events are streamed, so a fixed write timeout will cut them off.
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 
