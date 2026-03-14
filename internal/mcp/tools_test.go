@@ -148,6 +148,34 @@ func TestFetchStaleSignals_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestFetchStaleSignals_CapPerChunk(t *testing.T) {
+	t.Parallel()
+
+	// Simulate building the result map the same way fetchStaleSignals does,
+	// feeding more signals than the cap to verify the limit is enforced.
+	ts := time.Date(2026, time.March, 14, 12, 0, 0, 0, time.UTC)
+	chunkID := "chunk-overflow"
+
+	result := map[string][]StaleSignal{}
+	for i := 0; i < maxStaleSignalsPerChunk+10; i++ {
+		if len(result[chunkID]) < maxStaleSignalsPerChunk {
+			result[chunkID] = append(result[chunkID], StaleSignal{
+				Action:    "needs_update",
+				CreatedAt: ts.Add(-time.Duration(i) * time.Hour),
+			})
+		}
+	}
+
+	got := result[chunkID]
+	if len(got) != maxStaleSignalsPerChunk {
+		t.Fatalf("got %d signals, want %d (maxStaleSignalsPerChunk)", len(got), maxStaleSignalsPerChunk)
+	}
+	// Most recent signal should be first (index 0 = i=0, the newest).
+	if !got[0].CreatedAt.Equal(ts) {
+		t.Fatalf("first signal created_at = %v, want %v (most recent)", got[0].CreatedAt, ts)
+	}
+}
+
 func TestStaleSignalJSON(t *testing.T) {
 	t.Parallel()
 

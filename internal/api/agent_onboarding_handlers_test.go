@@ -352,3 +352,171 @@ func TestSkillEndpointReturnsMarkdown(t *testing.T) {
 		t.Fatalf("markdown missing expected heading")
 	}
 }
+
+func TestSkillsListEndpointReturnsCatalog(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills", nil)
+
+	rr := httptest.NewRecorder()
+	NewSkillHandlers(nil).List(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var body struct {
+		Skills []struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Purpose     string `json:"purpose"`
+			Format      string `json:"format"`
+			URL         string `json:"url"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(body.Skills) != 6 {
+		t.Fatalf("len(skills) = %d, want 6", len(body.Skills))
+	}
+
+	expectedSkillURLs := map[string]string{
+		"winnow-compact":  "/api/v1/skills/winnow-compact",
+		"winnow-onboard":  "/api/v1/skills/winnow-onboard",
+		"winnow-plan":     "/api/v1/skills/winnow-plan",
+		"winnow-research": "/api/v1/skills/winnow-research",
+		"winnow-review":   "/api/v1/skills/winnow-review",
+		"winnow-seed":     "/api/v1/skills/winnow-seed",
+	}
+	for _, skill := range body.Skills {
+		expectedURL, ok := expectedSkillURLs[skill.ID]
+		if !ok {
+			t.Fatalf("unexpected skill id %q", skill.ID)
+		}
+		if skill.URL != expectedURL {
+			t.Fatalf("skill %q url = %q, want %q", skill.ID, skill.URL, expectedURL)
+		}
+		if skill.Format != "markdown" {
+			t.Fatalf("skill %q format = %q, want markdown", skill.ID, skill.Format)
+		}
+		if skill.Title == "" || skill.Description == "" || skill.Purpose == "" {
+			t.Fatalf("skill %q missing summary fields: %+v", skill.ID, skill)
+		}
+		delete(expectedSkillURLs, skill.ID)
+	}
+	if len(expectedSkillURLs) != 0 {
+		t.Fatalf("missing skills from response: %v", expectedSkillURLs)
+	}
+}
+
+func TestSkillsListEndpointReachableViaJWT(t *testing.T) {
+	token, err := SignJWT("user-123", "skills@example.com")
+	if err != nil {
+		t.Fatalf("SignJWT() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	NewRouter(nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var body struct {
+		Skills []struct {
+			ID string `json:"id"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(body.Skills) != 6 {
+		t.Fatalf("len(skills) = %d, want 6", len(body.Skills))
+	}
+}
+
+func TestSkillEndpointReachableViaJWT(t *testing.T) {
+	token, err := SignJWT("user-123", "skills@example.com")
+	if err != nil {
+		t.Fatalf("SignJWT() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills/winnow-onboard", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	NewRouter(nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.ID != "winnow-onboard" {
+		t.Fatalf("id = %q, want winnow-onboard", body.ID)
+	}
+}
+
+func TestSkillsListEndpointAliasReachableViaJWT(t *testing.T) {
+	token, err := SignJWT("user-123", "skills@example.com")
+	if err != nil {
+		t.Fatalf("SignJWT() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/skills", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	NewRouter(nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var body struct {
+		Skills []struct {
+			ID string `json:"id"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(body.Skills) != 6 {
+		t.Fatalf("len(skills) = %d, want 6", len(body.Skills))
+	}
+}
+
+func TestSkillEndpointAliasReachableViaJWT(t *testing.T) {
+	token, err := SignJWT("user-123", "skills@example.com")
+	if err != nil {
+		t.Fatalf("SignJWT() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/skills/winnow-onboard", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	NewRouter(nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var body struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.ID != "winnow-onboard" {
+		t.Fatalf("id = %q, want winnow-onboard", body.ID)
+	}
+}

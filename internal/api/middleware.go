@@ -88,6 +88,31 @@ func APIKeyAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 	}
 }
 
+// SkillAuth accepts either a JWT or an API key for skill catalog routes.
+func SkillAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+	apiKeyAuth := APIKeyAuth(pool)
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+				writeAuthError(w, http.StatusUnauthorized, "AUTH_INVALID", "missing or invalid Authorization header")
+				return
+			}
+
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			jwtClaims, err := ParseJWT(tokenStr)
+			if err == nil {
+				user := JWTUser{ID: jwtClaims.UserID, Email: jwtClaims.Email}
+				next.ServeHTTP(w, r.WithContext(withJWTUser(r.Context(), user)))
+				return
+			}
+
+			apiKeyAuth(next).ServeHTTP(w, r)
+		})
+	}
+}
+
 // ContextAuth accepts either a JWT or an API key for context routes.
 // JWT callers must scope the request to a project via `project_id` or `X-Project-ID`.
 func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {

@@ -214,13 +214,41 @@ Skill links in this JWT-authenticated response use agent-scoped URLs like `/api/
 - Access is limited to users who can access the target agent.
 - This is the recommended endpoint for rendering a human-readable onboarding page in the UI.
 
-### `GET /api/v1/skills/:id`
+### `GET /api/v1/skills`
 
-Return a served skill document for API-key-authenticated agents.
+List available served skills.
 
 **Auth:**
 ```http
-Authorization: Bearer ctx_your-org_YOUR_KEY_HERE
+Authorization: Bearer <jwt-or-api-key>
+```
+
+**Response 200:**
+```json
+{
+  "skills": [
+    {
+      "id": "winnow-onboard",
+      "title": "Winnow Onboard",
+      "description": "Onboard to a project with Winnow by selecting project scope and reading high-signal context first.",
+      "purpose": "Fast project orientation before coding.",
+      "format": "markdown",
+      "url": "/api/v1/skills/winnow-onboard"
+    }
+  ]
+}
+```
+
+Alias for UI-style routing:
+- `GET /v1/skills`
+
+### `GET /api/v1/skills/:id`
+
+Return a served skill document.
+
+**Auth:**
+```http
+Authorization: Bearer <jwt-or-api-key>
 ```
 
 **Response 200:**
@@ -234,6 +262,9 @@ Authorization: Bearer ctx_your-org_YOUR_KEY_HERE
   "markdown": "---\nname: winnow-onboard\n..."
 }
 ```
+
+Alias for UI-style routing:
+- `GET /v1/skills/:id`
 
 ### `GET /api/v1/agents/:id/skills/:skillId`
 

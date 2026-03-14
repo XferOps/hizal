@@ -410,6 +410,13 @@ func lookupSkillDocument(id string) (skillDocument, bool) {
 	return skill, ok
 }
 
+// GET /api/v1/skills
+func (h *SkillHandlers) List(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"skills": listSkillSummaries(nil, false),
+	})
+}
+
 // GET /api/v1/skills/{id}
 func (h *SkillHandlers) Get(w http.ResponseWriter, r *http.Request) {
 	skillID := chi.URLParam(r, "id")

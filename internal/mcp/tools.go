@@ -666,6 +666,12 @@ func (t *Tools) DeleteContext(ctx context.Context, projectID, id string) (*Delet
 	return &DeleteContextResult{Deleted: deleted, ID: id}, nil
 }
 
+// maxStaleSignalsPerChunk caps how many stale signals are returned per chunk
+// in search results. Agents need to know that a chunk is stale and why — they
+// don't need an exhaustive history. Most-recent signals are kept (SQL orders
+// by created_at DESC before this limit is applied).
+const maxStaleSignalsPerChunk = 5
+
 // fetchStaleSignals returns a map of chunk ID → stale signals for a batch of
 // chunk IDs. A signal is generated when a review has a non-keep action (e.g.
 // "needs_update", "outdated", "incorrect") or a low rating (usefulness < 3 or
@@ -704,11 +710,15 @@ func (t *Tools) fetchStaleSignals(ctx context.Context, chunkIDs []string) (map[s
 		if err := rows.Scan(&chunkID, &action, &note, &createdAt); err != nil {
 			return nil, err
 		}
-		result[chunkID] = append(result[chunkID], StaleSignal{
-			Action:    action,
-			Note:      note,
-			CreatedAt: createdAt,
-		})
+		// Only accumulate up to maxStaleSignalsPerChunk per chunk — we have
+		// everything we need to surface staleness without unbounded growth.
+		if len(result[chunkID]) < maxStaleSignalsPerChunk {
+			result[chunkID] = append(result[chunkID], StaleSignal{
+				Action:    action,
+				Note:      note,
+				CreatedAt: createdAt,
+			})
+		}
 	}
 	return result, rows.Err()
 }
