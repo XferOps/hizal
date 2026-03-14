@@ -22,7 +22,11 @@ const (
 	EventError    EventType = "error"
 )
 
-const categoryTimeout = 20 * time.Second
+const (
+	categoryTimeout = 20 * time.Second
+	discoverTimeout = 30 * time.Second
+	maxFilesPerCat  = 5 // max files the LLM may assign per category
+)
 
 // Event is a single SSE payload.
 type Event struct {
@@ -31,12 +35,16 @@ type Event struct {
 }
 
 // ProgressData is sent while seeding is in progress.
+//
+// CurrentCategory is the single category being generated right now (generating step).
+// DiscoveredCategories is the full list found by the LLM (discovering step, emitted once).
 type ProgressData struct {
-	Step     string `json:"step"`
-	Message  string `json:"message"`
-	Current  int    `json:"current,omitempty"`
-	Total    int    `json:"total,omitempty"`
-	Category string `json:"category,omitempty"`
+	Step                 string   `json:"step"`
+	Message              string   `json:"message"`
+	Current              int      `json:"current,omitempty"`
+	Total                int      `json:"total,omitempty"`
+	CurrentCategory      string   `json:"current_category,omitempty"`
+	DiscoveredCategories []string `json:"discovered_categories,omitempty"`
 }
 
 // CompleteData is sent when seeding finishes successfully.
@@ -49,6 +57,13 @@ type CompleteData struct {
 type ErrorData struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+// DiscoveredCategory is one category returned by the LLM discovery step.
+type DiscoveredCategory struct {
+	QueryKey    string   `json:"query_key"`
+	Description string   `json:"description"`
+	Files       []string `json:"files"`
 }
 
 // Request is the input to Run.
@@ -82,14 +97,8 @@ func emit(ch chan<- Event, t EventType, data interface{}) {
 	ch <- Event{Type: t, Data: data}
 }
 
-func progress(ch chan<- Event, step, message string, current, total int, category string) {
-	emit(ch, EventProgress, ProgressData{
-		Step:     step,
-		Message:  message,
-		Current:  current,
-		Total:    total,
-		Category: category,
-	})
+func progress(ch chan<- Event, data ProgressData) {
+	emit(ch, EventProgress, data)
 }
 
 func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
@@ -101,7 +110,7 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 	}
 
 	// 2. Fetch repo metadata
-	progress(ch, "fetching_repo", fmt.Sprintf("Connecting to %s/%s...", owner, repo), 0, 0, "")
+	progress(ch, ProgressData{Step: "fetching_repo", Message: fmt.Sprintf("Connecting to %s/%s...", owner, repo)})
 	meta, err := FetchRepo(ctx, owner, repo, req.GitHubToken)
 	if err != nil {
 		if ghErr, ok := err.(*GitHubError); ok {
@@ -113,7 +122,7 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 	}
 
 	// 3. Fetch file tree
-	progress(ch, "fetching_tree", "Fetching file tree...", 0, 0, "")
+	progress(ch, ProgressData{Step: "fetching_tree", Message: "Fetching file tree..."})
 	entries, err := FetchTree(ctx, meta, req.GitHubToken)
 	if err != nil {
 		if ghErr, ok := err.(*GitHubError); ok {
@@ -124,10 +133,10 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 		return
 	}
 
-	// 4. Classify files
-	progress(ch, "classifying", fmt.Sprintf("Scanning %d files...", len(entries)), 0, 0, "")
-	selected := Classify(entries)
-	if len(selected) == 0 {
+	// 4. Filter entries (remove vendor, generated files, binaries)
+	filtered := FilterEntries(entries)
+	progress(ch, ProgressData{Step: "classifying", Message: fmt.Sprintf("Filtered to %d relevant files...", len(filtered))})
+	if len(filtered) == 0 {
 		emit(ch, EventError, ErrorData{
 			Code:    "NO_FILES_FOUND",
 			Message: "No recognisable source files found in this repo. Try the winnow-seed skill for manual seeding.",
@@ -135,11 +144,7 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 		return
 	}
 
-	catKeys := CategoriesFromSelected(selected)
-	grouped := GroupByCategory(selected)
-	progress(ch, "classifying", fmt.Sprintf("Found files across %d categories. Generating context...", len(catKeys)), 0, 0, "")
-
-	// 5. For each category: fetch file contents, call LLM, write chunk
+	// 5. LLM-driven category discovery
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
 		emit(ch, EventError, ErrorData{Code: "CONFIG_ERROR", Message: "OPENAI_API_KEY is not configured"})
@@ -147,28 +152,55 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 	}
 	llm := openai.NewClient(apiKey)
 
+	progress(ch, ProgressData{Step: "discovering", Message: "Identifying categories for this repo..."})
+	discoverCtx, discoverCancel := context.WithTimeout(ctx, discoverTimeout)
+	discovered, err := discoverCategories(discoverCtx, llm, meta, filtered)
+	discoverCancel()
+	if err != nil {
+		emit(ch, EventError, ErrorData{
+			Code:    "DISCOVERY_FAILED",
+			Message: fmt.Sprintf("Failed to identify categories: %v", err),
+		})
+		return
+	}
+
+	// Broadcast the discovered category list so the UI can render pills immediately
+	catKeys := make([]string, len(discovered))
+	for i, c := range discovered {
+		catKeys[i] = c.QueryKey
+	}
+	progress(ch, ProgressData{
+		Step:                 "discovering",
+		Message:              fmt.Sprintf("Found %d categories. Generating context...", len(discovered)),
+		DiscoveredCategories: catKeys,
+	})
+
+	// 6. For each category: fetch file contents, call LLM, write chunk
 	written := 0
-	writtenCats := make([]string, 0, len(catKeys))
+	writtenCats := make([]string, 0, len(discovered))
 
-	for i, qk := range catKeys {
+	for i, cat := range discovered {
 		current := i + 1
-		total := len(catKeys)
+		total := len(discovered)
 
-		progress(ch, "generating",
-			fmt.Sprintf("Generating %s context... (%d/%d)", qk, current, total),
-			current, total, qk,
-		)
+		progress(ch, ProgressData{
+			Step:            "generating",
+			Message:         fmt.Sprintf("Generating %s context... (%d/%d)", cat.QueryKey, current, total),
+			Current:         current,
+			Total:           total,
+			CurrentCategory: cat.QueryKey,
+		})
 
 		categoryCtx, cancel := context.WithTimeout(ctx, categoryTimeout)
-		ok, err := processCategory(categoryCtx, tools, req.ProjectID, meta, qk, grouped[qk], req.GitHubToken, llm)
+		ok, err := processCategory(categoryCtx, tools, req.ProjectID, meta, cat.QueryKey, cat.Description, cat.Files, req.GitHubToken, llm)
 		cancel()
 		if err != nil {
-			log.Printf("seed: skipping category=%s repo=%s/%s: %v", qk, meta.Owner, meta.Repo, err)
+			log.Printf("seed: skipping category=%s repo=%s/%s: %v", cat.QueryKey, meta.Owner, meta.Repo, err)
 			continue
 		}
 		if ok {
 			written++
-			writtenCats = append(writtenCats, qk)
+			writtenCats = append(writtenCats, cat.QueryKey)
 		}
 	}
 
@@ -178,13 +210,87 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 	})
 }
 
+// discoverCategories asks the LLM to identify the meaningful knowledge categories
+// for this repo based on its filtered file tree. Returns 5-8 categories, each
+// with a query_key slug, a one-sentence description, and up to 5 relevant file paths.
+func discoverCategories(ctx context.Context, llm *openai.Client, meta *RepoMeta, entries []TreeEntry) ([]DiscoveredCategory, error) {
+	// Build a condensed file list from paths only — no content needed here
+	paths := make([]string, 0, len(entries))
+	for _, e := range entries {
+		paths = append(paths, e.Path)
+	}
+	fileList := strings.Join(paths, "\n")
+
+	systemPrompt := `You are a technical analyst identifying knowledge categories for a codebase.
+Return only valid JSON. No markdown fences, no explanation outside the JSON.`
+
+	userPrompt := fmt.Sprintf(`Repository: %s/%s
+%sPrimary language: %s
+
+File tree:
+%s
+
+Identify 5-8 categories of knowledge an AI coding agent would need to understand this codebase.
+Common categories include: architecture, domain-model, api-routes, auth, database-schema, code-patterns, deployment.
+Use these if they fit. Define your own if the codebase calls for it (e.g. "training-pipeline", "ios-views", "smart-contracts").
+
+For each category return:
+- query_key: short kebab-case slug (e.g. "api-routes")
+- description: one sentence describing what this category covers
+- files: up to 5 most relevant file paths from the tree above (must exist in the tree exactly as listed)
+
+Return a JSON array only:
+[{"query_key":"...","description":"...","files":["..."]}]
+
+If the repo has fewer than 5 meaningful categories, return fewer — quality over quantity.`,
+		meta.Owner, meta.Repo,
+		descriptionLine(meta),
+		meta.Language,
+		fileList,
+	)
+
+	resp, err := llm.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+		Model: openai.GPT4oMini,
+		Messages: []openai.ChatCompletionMessage{
+			{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+			{Role: openai.ChatMessageRoleUser, Content: userPrompt},
+		},
+		Temperature: 0.1,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("LLM call failed: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("LLM returned no choices")
+	}
+
+	raw := strings.TrimSpace(resp.Choices[0].Message.Content)
+	var cats []DiscoveredCategory
+	if err := json.Unmarshal([]byte(raw), &cats); err != nil {
+		return nil, fmt.Errorf("discovery output was not valid JSON: %w", err)
+	}
+	if len(cats) == 0 {
+		return nil, fmt.Errorf("LLM returned no categories")
+	}
+
+	// Cap files per category to avoid over-fetching
+	for i := range cats {
+		if len(cats[i].Files) > maxFilesPerCat {
+			cats[i].Files = cats[i].Files[:maxFilesPerCat]
+		}
+	}
+
+	return cats, nil
+}
+
 func processCategory(
 	ctx context.Context,
 	writer contextWriter,
 	projectID string,
 	meta *RepoMeta,
 	queryKey string,
-	files []SelectedFile,
+	description string,
+	files []string,
 	githubToken string,
 	llm *openai.Client,
 ) (bool, error) {
@@ -196,7 +302,7 @@ func processCategory(
 		return false, nil
 	}
 
-	chunk, err := generateChunkFunc(ctx, llm, meta, queryKey, contents)
+	chunk, err := generateChunkFunc(ctx, llm, meta, queryKey, description, contents)
 	if err != nil {
 		return false, fmt.Errorf("generate chunk: %w", err)
 	}
@@ -215,21 +321,21 @@ func processCategory(
 	return true, nil
 }
 
-// fetchFileContents reads the content of each selected file, returning path->content pairs.
-func fetchFileContents(ctx context.Context, meta *RepoMeta, files []SelectedFile, token string) (map[string]string, error) {
+// fetchFileContents fetches the content of each file path, returning a path→content map.
+// Individual fetch errors are skipped silently (submodules, deleted files, etc.).
+func fetchFileContents(ctx context.Context, meta *RepoMeta, files []string, token string) (map[string]string, error) {
 	result := make(map[string]string, len(files))
-	for _, f := range files {
-		content, err := FetchFile(ctx, meta, f.Path, token, maxFileBytes)
+	for _, path := range files {
+		content, err := FetchFile(ctx, meta, path, token, maxFileBytes)
 		if err != nil {
-			// Skip individual files that can't be fetched (submodules, etc.)
 			continue
 		}
-		result[f.Path] = content
+		result[path] = content
 	}
 	return result, nil
 }
 
-// generatedChunk is the structured output from the LLM.
+// generatedChunk is the structured output from the LLM chunk generation step.
 type generatedChunk struct {
 	Title   string   `json:"title"`
 	Content string   `json:"content"`
@@ -237,24 +343,7 @@ type generatedChunk struct {
 	Related []string `json:"related"`
 }
 
-// categoryGuidance provides category-specific instructions for the LLM.
-var categoryGuidance = map[string]string{
-	"architecture":    "Focus on the overall system design, tech stack, architectural patterns, and how components fit together.",
-	"domain-model":    "Focus on the core data entities, their fields, relationships, and business rules they encode.",
-	"api-routes":      "Focus on the HTTP endpoints: methods, paths, request/response shapes, and authentication requirements.",
-	"auth":            "Focus on the authentication and authorization mechanisms: how tokens/sessions work, middleware chains, and security patterns.",
-	"database-schema": "Focus on the database tables, columns, indexes, constraints, and migration history.",
-	"code-patterns":   "Focus on the language/framework conventions, dependency management, coding patterns, and project configuration.",
-	"deployment":      "Focus on the infrastructure, CI/CD pipelines, containerisation, and environment configuration.",
-}
-
-func generateChunk(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey string, contents map[string]string) (*generatedChunk, error) {
-	guidance := categoryGuidance[queryKey]
-	if guidance == "" {
-		guidance = "Focus on what is most important about this part of the codebase."
-	}
-
-	// Build the file section of the prompt
+func generateChunk(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) (*generatedChunk, error) {
 	var sb strings.Builder
 	for path, content := range contents {
 		sb.WriteString(fmt.Sprintf("=== %s ===\n%s\n\n", path, content))
@@ -272,7 +361,7 @@ CRITICAL RULES:
 %s
 
 Category: %s
-Guidance: %s
+What this category covers: %s
 
 Files:
 %s
@@ -281,15 +370,15 @@ Return a JSON object with exactly these fields:
 {
   "title": "short descriptive title (max 80 chars)",
   "content": "2-4 paragraphs describing what you found",
-  "gotchas": ["array of gotchas/warnings, or empty array"],
-  "related": ["array of related query_key names from: architecture, domain-model, api-routes, auth, database-schema, code-patterns, deployment — or empty array"]
+  "gotchas": ["array of gotchas or warnings, or empty array"],
+  "related": ["optional: other category names relevant to this chunk"]
 }
 
-If the files don't contain enough information, return: null`,
+If the files don't contain enough information for a meaningful chunk, return: null`,
 		meta.Owner, meta.Repo,
 		descriptionLine(meta),
 		queryKey,
-		guidance,
+		description,
 		sb.String(),
 	)
 

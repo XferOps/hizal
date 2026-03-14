@@ -27,10 +27,10 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 		generateChunkFunc = origGenerate
 	})
 
-	fetchFileContentsFunc = func(ctx context.Context, meta *RepoMeta, files []SelectedFile, token string) (map[string]string, error) {
+	fetchFileContentsFunc = func(ctx context.Context, meta *RepoMeta, files []string, token string) (map[string]string, error) {
 		return map[string]string{"auth.go": "package auth"}, nil
 	}
-	generateChunkFunc = func(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey string, contents map[string]string) (*generatedChunk, error) {
+	generateChunkFunc = func(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) (*generatedChunk, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -39,9 +39,19 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 	defer cancel()
 
 	writer := &fakeContextWriter{}
-	ok, err := processCategory(ctx, writer, "project-1", &RepoMeta{Owner: "upstash", Repo: "context7"}, "auth", []SelectedFile{{Path: "auth.go", QueryKey: "auth"}}, "", nil)
+	ok, err := processCategory(
+		ctx,
+		writer,
+		"project-1",
+		&RepoMeta{Owner: "XferOps", Repo: "winnow"},
+		"auth",
+		"Authentication mechanisms and middleware",
+		[]string{"auth.go"},
+		"",
+		nil,
+	)
 	if ok {
-		t.Fatalf("expected category write to be skipped")
+		t.Fatalf("expected category write to be skipped on timeout")
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline exceeded, got %v", err)
