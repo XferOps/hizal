@@ -30,7 +30,7 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 	fetchFileContentsFunc = func(ctx context.Context, meta *RepoMeta, files []string, token string) (map[string]string, error) {
 		return map[string]string{"auth.go": "package auth"}, nil
 	}
-	generateChunkFunc = func(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) (*generatedChunk, error) {
+	generateChunkFunc = func(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) ([]*generatedChunk, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -39,7 +39,7 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 	defer cancel()
 
 	writer := &fakeContextWriter{}
-	ok, err := processCategory(
+	n, err := processCategory(
 		ctx,
 		writer,
 		"project-1",
@@ -50,8 +50,8 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 		"",
 		nil,
 	)
-	if ok {
-		t.Fatalf("expected category write to be skipped on timeout")
+	if n > 0 {
+		t.Fatalf("expected no chunks written on timeout, got %d", n)
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline exceeded, got %v", err)

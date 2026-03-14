@@ -192,14 +192,14 @@ func run(ctx context.Context, tools *mcp.Tools, req Request, ch chan<- Event) {
 		})
 
 		categoryCtx, cancel := context.WithTimeout(ctx, categoryTimeout)
-		ok, err := processCategory(categoryCtx, tools, req.ProjectID, meta, cat.QueryKey, cat.Description, cat.Files, req.GitHubToken, llm)
+		n, err := processCategory(categoryCtx, tools, req.ProjectID, meta, cat.QueryKey, cat.Description, cat.Files, req.GitHubToken, llm)
 		cancel()
 		if err != nil {
 			log.Printf("seed: skipping category=%s repo=%s/%s: %v", cat.QueryKey, meta.Owner, meta.Repo, err)
 			continue
 		}
-		if ok {
-			written++
+		if n > 0 {
+			written += n
 			writtenCats = append(writtenCats, cat.QueryKey)
 		}
 	}
@@ -293,32 +293,37 @@ func processCategory(
 	files []string,
 	githubToken string,
 	llm *openai.Client,
-) (bool, error) {
+) (int, error) {
 	contents, err := fetchFileContentsFunc(ctx, meta, files, githubToken)
 	if err != nil {
-		return false, fmt.Errorf("fetch file contents: %w", err)
+		return 0, fmt.Errorf("fetch file contents: %w", err)
 	}
 	if len(contents) == 0 {
-		return false, nil
+		return 0, nil
 	}
 
-	chunk, err := generateChunkFunc(ctx, llm, meta, queryKey, description, contents)
+	chunks, err := generateChunkFunc(ctx, llm, meta, queryKey, description, contents)
 	if err != nil {
-		return false, fmt.Errorf("generate chunk: %w", err)
+		return 0, fmt.Errorf("generate chunk: %w", err)
 	}
 
-	_, err = writer.WriteContext(ctx, projectID, mcp.WriteContextInput{
-		QueryKey: queryKey,
-		Title:    chunk.Title,
-		Content:  chunk.Content,
-		Gotchas:  chunk.Gotchas,
-		Related:  chunk.Related,
-	})
-	if err != nil {
-		return false, fmt.Errorf("write context: %w", err)
+	written := 0
+	for _, chunk := range chunks {
+		_, err = writer.WriteContext(ctx, projectID, mcp.WriteContextInput{
+			QueryKey: queryKey,
+			Title:    chunk.Title,
+			Content:  chunk.Content,
+			Gotchas:  chunk.Gotchas,
+			Related:  chunk.Related,
+		})
+		if err != nil {
+			log.Printf("seed: write context failed for %s/%s chunk %q: %v", queryKey, meta.Repo, chunk.Title, err)
+			continue
+		}
+		written++
 	}
 
-	return true, nil
+	return written, nil
 }
 
 // fetchFileContents fetches the content of each file path, returning a path→content map.
@@ -343,7 +348,7 @@ type generatedChunk struct {
 	Related []string `json:"related"`
 }
 
-func generateChunk(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) (*generatedChunk, error) {
+func generateChunk(ctx context.Context, llm *openai.Client, meta *RepoMeta, queryKey, description string, contents map[string]string) ([]*generatedChunk, error) {
 	var sb strings.Builder
 	for path, content := range contents {
 		sb.WriteString(fmt.Sprintf("=== %s ===\n%s\n\n", path, content))
@@ -360,7 +365,8 @@ RULES:
 - Include short code snippets that show the canonical pattern — not a description of the pattern.
 - Do not write narrative prose ("The system uses..."). Write a technical reference ("## Auth\n- jwtMiddleware applied via...").
 - Do not invent or speculate. Only document what is clearly present in the provided files.
-- If the files don't contain enough substance for a useful chunk, return null.
+- Split content into multiple focused chunks when it covers meaningfully distinct sub-topics. More chunks is not better — split only when a sub-topic is substantial enough to stand alone.
+- If the files don't contain enough substance for any useful chunk, return an empty array.
 - Return only valid JSON. No markdown fences around the JSON, no explanation outside it.`
 
 	userPrompt := fmt.Sprintf(`Repository: %s/%s
@@ -372,15 +378,17 @@ What this category covers: %s
 Files:
 %s
 
-Return a JSON object with exactly these fields:
-{
-  "title": "precise title naming the specific thing, not just the category (max 80 chars)",
-  "content": "structured markdown reference — headers, real names, real signatures, inline code and fenced snippets where they add clarity. An agent reading this should know exactly what to call and how.",
-  "gotchas": ["specific things that will trip up an agent — e.g. 'WriteTimeout must be 0 for SSE or the handler is killed mid-stream'. No generic warnings."],
-  "related": ["other category query_key names relevant to understanding this one"]
-}
+Return a JSON array of chunk objects. Each object has exactly these fields:
+[
+  {
+    "title": "precise title naming the specific thing, not just the category (max 80 chars)",
+    "content": "structured markdown reference — headers, real names, real signatures, inline code and fenced snippets where they add clarity. An agent reading this should know exactly what to call and how.",
+    "gotchas": ["specific things that will trip up an agent — e.g. 'WriteTimeout must be 0 for SSE or the handler is killed mid-stream'. No generic warnings."],
+    "related": ["other category query_key names relevant to understanding this one"]
+  }
+]
 
-If the files don't contain enough substance for a useful chunk, return: null`,
+Split into multiple chunks when the material covers distinct sub-topics (e.g. separate chunks for auth middleware vs. token generation vs. session management). Maximum 8 chunks. Minimum 1 — unless the files contain no useful substance, in which case return [].`,
 		meta.Owner, meta.Repo,
 		descriptionLine(meta),
 		queryKey,
@@ -404,19 +412,27 @@ If the files don't contain enough substance for a useful chunk, return: null`,
 	}
 
 	raw := strings.TrimSpace(resp.Choices[0].Message.Content)
-	if raw == "null" || raw == "" {
+	if raw == "" || raw == "[]" {
 		return nil, fmt.Errorf("LLM indicated insufficient content for this category")
 	}
 
-	var chunk generatedChunk
-	if err := json.Unmarshal([]byte(raw), &chunk); err != nil {
+	var chunks []*generatedChunk
+	if err := json.Unmarshal([]byte(raw), &chunks); err != nil {
 		return nil, fmt.Errorf("LLM output was not valid JSON: %w", err)
 	}
-	if chunk.Title == "" || chunk.Content == "" {
-		return nil, fmt.Errorf("LLM returned empty title or content")
+
+	// Filter out any malformed entries the LLM may have produced
+	valid := chunks[:0]
+	for _, c := range chunks {
+		if c != nil && c.Title != "" && c.Content != "" {
+			valid = append(valid, c)
+		}
+	}
+	if len(valid) == 0 {
+		return nil, fmt.Errorf("LLM returned no valid chunks")
 	}
 
-	return &chunk, nil
+	return valid, nil
 }
 
 func descriptionLine(meta *RepoMeta) string {
