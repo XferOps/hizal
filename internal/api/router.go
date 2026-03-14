@@ -111,6 +111,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Post("/v1/orgs/{id}/agents", agentH.CreateAgent)
 		r.Get("/v1/orgs/{id}/agents", agentH.ListAgents)
 		r.Get("/v1/agents/{id}", agentH.GetAgent)
+		r.With(SkillAuth(pool)).Get("/v1/skills", skillH.List)
+		r.With(SkillAuth(pool)).Get("/v1/skills/{id}", skillH.Get)
 		r.Get("/api/v1/agents/{id}/onboarding", agentOnboardingH.GetForAgent)
 		r.Get("/api/v1/agents/{id}/skills/{skillId}", skillH.GetForAgent)
 		r.Patch("/v1/agents/{id}", agentH.UpdateAgent)
@@ -161,7 +163,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// Dynamic agent onboarding endpoint (requires API key auth)
 	r.With(APIKeyAuth(pool)).Get("/api/v1/agent-onboarding", agentOnboardingH.Get)
-	r.With(APIKeyAuth(pool)).Get("/api/v1/skills/{id}", skillH.Get)
+	r.With(SkillAuth(pool)).Get("/api/v1/skills", skillH.List)
+	r.With(SkillAuth(pool)).Get("/api/v1/skills/{id}", skillH.Get)
 
 	// Usage analytics endpoint (requires auth, scoped to org)
 	r.With(APIKeyAuth(pool)).Get("/v1/usage", func(w http.ResponseWriter, r *http.Request) {

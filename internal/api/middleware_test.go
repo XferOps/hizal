@@ -110,3 +110,33 @@ func TestContextAuthJWTRequiresProjectMembership(t *testing.T) {
 		t.Fatalf("body = %q, want membership error", body)
 	}
 }
+
+func TestSkillAuthAcceptsJWTWithoutPool(t *testing.T) {
+	token, err := SignJWT("user-123", "skills@example.com")
+	if err != nil {
+		t.Fatalf("SignJWT() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/skills", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rr := httptest.NewRecorder()
+	called := false
+	handler := SkillAuth(nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		user, ok := JWTUserFrom(r.Context())
+		if !ok || user.ID != "user-123" {
+			t.Fatalf("JWT user missing from context: %+v, ok=%v", user, ok)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Fatal("next handler should be called for valid JWT")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
