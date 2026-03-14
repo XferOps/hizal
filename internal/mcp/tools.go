@@ -306,20 +306,19 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 
 	// last_review_at: most recent review date, or updated_at if no reviews exist.
 	// Used to compute freshness decay — a recent review resets the staleness clock.
-	const searchCols = `
-		cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding, cc.source_file,
-		cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
-		COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
-		COALESCE(1 - (cc.embedding <=> $1), 0) AS score,
-		COALESCE(
-			(SELECT MAX(cr.created_at) FROM context_reviews cr WHERE cr.chunk_id = cc.id),
-			cc.updated_at
-		) AS last_review_at`
+	const searchCols = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding, cc.source_file,
+			cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+			COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
+			COALESCE(1 - (cc.embedding <=> $1), 0) AS score,
+			COALESCE(
+				(SELECT MAX(cr.created_at) FROM context_reviews cr WHERE cr.chunk_id = cc.id),
+				cc.updated_at
+			) AS last_review_at`
 
 	var rows pgxRows
 	if in.QueryKey != "" {
 		rows, err = pool(t).Query(ctx, `
-			SELECT`+searchCols+`
+			SELECT `+searchCols+`
 			FROM context_chunks cc
 			WHERE cc.project_id = $2 AND cc.query_key = $3
 			ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
@@ -327,7 +326,7 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 		`, vec, projectID, in.QueryKey, limit)
 	} else {
 		rows, err = pool(t).Query(ctx, `
-			SELECT`+searchCols+`
+			SELECT `+searchCols+`
 			FROM context_chunks cc
 			WHERE cc.project_id = $2
 			ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
@@ -358,6 +357,8 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 
 	// Re-sort by adjusted score (freshness already baked in). The SQL ORDER BY
 	// used raw cosine distance, so the final ranking may shift slightly after decay.
+	// Note: SQL LIMIT is applied before freshness decay, so decay re-ranks within
+	// the top-N window rather than across the full result set.
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
