@@ -48,12 +48,16 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	if pool != nil && h != nil {
 		seedH = NewSeedHandlers(pool, mcpServer.Tools())
 	}
+	billingH := NewBillingHandlers(pool)
+	// Stripe webhook — no JWT auth, verified by Stripe-Signature header
+	r.Post("/v1/webhooks/stripe", billingH.HandleWebhook)
 
 	// ── Auth routes (no auth required for register/login) ──────────────────
 	r.Route("/v1/auth", func(r chi.Router) {
 		r.Post("/register", authH.Register)
 		r.Post("/login", authH.Login)
 		r.With(JWTAuth()).Get("/me", authH.Me)
+		r.With(JWTAuth()).Patch("/me", authH.UpdateUser)
 		r.Post("/accept-invite", inviteH.AcceptInvite)
 	})
 
@@ -100,6 +104,13 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		if seedH != nil {
 			r.Post("/v1/projects/{id}/seed", seedH.SeedProject)
 		}
+
+		// Billing
+		r.Get("/v1/orgs/{id}/usage", UsageHandler(pool))
+		r.Post("/v1/billing/checkout", billingH.CreateCheckout)
+		r.Post("/v1/billing/portal", billingH.CreatePortal)
+		r.Post("/v1/billing/subscription/cancel", billingH.CancelSubscription)
+		r.Post("/v1/billing/downgrade-choice", billingH.DowngradeChoice)
 
 		// Project memberships
 		r.Post("/v1/projects/{id}/members", projMemberH.AddMember)
