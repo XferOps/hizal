@@ -57,6 +57,18 @@ func NewTools(pool *pgxpool.Pool, embed *embeddings.Client) *Tools {
 
 type WriteContextInput struct {
 	ProjectID   string   `json:"project_id,omitempty"`
+	// Scope is PROJECT | AGENT | ORG. Defaults to PROJECT.
+	// Prefer purpose-built tools (write_knowledge, write_memory, etc.) over
+	// setting scope manually — they route correctly and enforce guardrails.
+	Scope       string   `json:"scope,omitempty"`
+	// AgentID is required when Scope is AGENT.
+	AgentID     string   `json:"agent_id,omitempty"`
+	// OrgID is required when Scope is ORG.
+	OrgID       string   `json:"org_id,omitempty"`
+	// AlwaysInject: true = ambient baseline, false = on-demand. Defaults to false.
+	AlwaysInject bool   `json:"always_inject,omitempty"`
+	// ChunkType: KNOWLEDGE | RESEARCH | PLAN | DECISION. Defaults to KNOWLEDGE.
+	ChunkType   string   `json:"chunk_type,omitempty"`
 	QueryKey    string   `json:"query_key"`
 	Title       string   `json:"title"`
 	Content     string   `json:"content"`
@@ -67,10 +79,13 @@ type WriteContextInput struct {
 }
 
 type WriteContextResult struct {
-	ID        string    `json:"id"`
-	QueryKey  string    `json:"query_key"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
+	ID            string    `json:"id"`
+	Scope         string    `json:"scope"`
+	AlwaysInject  bool      `json:"always_inject"`
+	ChunkType     string    `json:"chunk_type"`
+	QueryKey      string    `json:"query_key"`
+	Title         string    `json:"title"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 type SearchContextInput struct {
@@ -94,6 +109,11 @@ type StaleSignal struct {
 
 type ChunkResult struct {
 	ID           string        `json:"id"`
+	Scope        string        `json:"scope"`
+	AgentID      *string       `json:"agent_id,omitempty"`
+	OrgID        *string       `json:"org_id,omitempty"`
+	AlwaysInject bool          `json:"always_inject"`
+	ChunkType    string        `json:"chunk_type"`
 	QueryKey     string        `json:"query_key"`
 	Title        string        `json:"title"`
 	Content      string        `json:"content"`
@@ -287,6 +307,21 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 		return nil, fmt.Errorf("embedding generation failed: %w", err)
 	}
 
+	// Resolve scope — default to PROJECT for backward compatibility.
+	scope := in.Scope
+	if scope == "" {
+		scope = "PROJECT"
+	}
+
+	// Resolve always_inject — default to false for backward compatibility.
+	alwaysInject := in.AlwaysInject
+
+	// Resolve chunk_type — default to KNOWLEDGE.
+	chunkType := in.ChunkType
+	if chunkType == "" {
+		chunkType = "KNOWLEDGE"
+	}
+
 	contentJSON := encodeContent(in.Content)
 	gotchasJSON := encodeStringSlice(in.Gotchas)
 	relatedJSON := encodeStringSlice(in.Related)
@@ -296,10 +331,13 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at
-	`, projectID, in.QueryKey, in.Title, contentJSON, vec, nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+	`, nullStr(projectID), scope, nullStr(in.AgentID), nullStr(in.OrgID),
+		alwaysInject, chunkType,
+		in.QueryKey, in.Title, contentJSON, vec,
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -315,10 +353,13 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}
 
 	return &WriteContextResult{
-		ID:        id,
-		QueryKey:  in.QueryKey,
-		Title:     in.Title,
-		CreatedAt: createdAt,
+		ID:           id,
+		Scope:        scope,
+		AlwaysInject: alwaysInject,
+		ChunkType:    chunkType,
+		QueryKey:     in.QueryKey,
+		Title:        in.Title,
+		CreatedAt:    createdAt,
 	}, nil
 }
 

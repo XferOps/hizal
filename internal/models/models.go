@@ -57,20 +57,24 @@ type ProjectMembership struct {
 
 // Agent represents a row in the agents table.
 type Agent struct {
-	ID           string     `json:"id" db:"id"`
-	OrgID        string     `json:"org_id" db:"org_id"`
-	OwnerID      string     `json:"owner_id" db:"owner_id"`
-	Name         string     `json:"name" db:"name"`
-	Slug         string     `json:"slug" db:"slug"`
-	Type         string     `json:"type" db:"type"`
-	Description  *string    `json:"description,omitempty" db:"description"`
-	Status       string     `json:"status" db:"status"`
-	Platform     *string    `json:"platform,omitempty" db:"platform"`
-	InstanceID   *string    `json:"instance_id,omitempty" db:"instance_id"`
-	IPAddress    *string    `json:"ip_address,omitempty" db:"ip_address"`
-	LastActiveAt *time.Time `json:"last_active_at,omitempty" db:"last_active_at"`
-	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
+	ID            string     `json:"id" db:"id"`
+	OrgID         string     `json:"org_id" db:"org_id"`
+	OwnerID       string     `json:"owner_id" db:"owner_id"`
+	Name          string     `json:"name" db:"name"`
+	Slug          string     `json:"slug" db:"slug"`
+	Type          string     `json:"type" db:"type"`
+	Description   *string    `json:"description,omitempty" db:"description"`
+	Status        string     `json:"status" db:"status"`
+	Platform      *string    `json:"platform,omitempty" db:"platform"`
+	InstanceID    *string    `json:"instance_id,omitempty" db:"instance_id"`
+	IPAddress     *string    `json:"ip_address,omitempty" db:"ip_address"`
+	LastActiveAt  *time.Time `json:"last_active_at,omitempty" db:"last_active_at"`
+	// MemoryEnabled controls whether this agent can read/write AGENT-scoped chunks.
+	// false (default): knowledge-only — PROJECT + ORG scope only.
+	// true:            full behavior-driven — AGENT scope unlocked (Pro tier).
+	MemoryEnabled bool       `json:"memory_enabled" db:"memory_enabled"`
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // AgentProject represents a row in the agent_projects table.
@@ -97,9 +101,35 @@ type APIKey struct {
 }
 
 // ContextChunk represents a row in the context_chunks table.
+//
+// Scope model:
+//   PROJECT (default): shared project knowledge — project_id required.
+//   AGENT:             private agent memory — agent_id required, project_id optional.
+//   ORG:               org-wide memory — org_id required, project_id NULL.
+//
+// AlwaysInject:
+//   false: retrieved on demand via semantic search.
+//   true:  surfaced automatically as ambient baseline layer.
+//
+// ChunkType:
+//   KNOWLEDGE: facts, architecture, conventions (default)
+//   RESEARCH:  investigation, findings (most disposable during consolidation)
+//   PLAN:      planned work, approaches
+//   DECISION:  made decisions, reasoning
 type ContextChunk struct {
 	ID             string          `json:"id" db:"id"`
-	ProjectID      string          `json:"project_id" db:"project_id"`
+	// ProjectID is nullable: NULL for ORG-scoped chunks and cross-project AGENT chunks.
+	ProjectID      *string         `json:"project_id,omitempty" db:"project_id"`
+	// Scope is PROJECT | AGENT | ORG. Defaults to PROJECT.
+	Scope          string          `json:"scope" db:"scope"`
+	// AgentID is set for AGENT-scoped chunks.
+	AgentID        *string         `json:"agent_id,omitempty" db:"agent_id"`
+	// OrgID is set for ORG-scoped chunks.
+	OrgID          *string         `json:"org_id,omitempty" db:"org_id"`
+	// AlwaysInject: true = ambient baseline, false = on-demand search.
+	AlwaysInject   bool            `json:"always_inject" db:"always_inject"`
+	// ChunkType: KNOWLEDGE | RESEARCH | PLAN | DECISION. Defaults to KNOWLEDGE.
+	ChunkType      string          `json:"chunk_type" db:"chunk_type"`
 	QueryKey       string          `json:"query_key" db:"query_key"`
 	Title          string          `json:"title" db:"title"`
 	Content        []byte          `json:"content" db:"content"` // JSONB
