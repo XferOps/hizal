@@ -35,26 +35,26 @@ Session end
 │                    Hizal Lifecycle                              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   ┌──────────┐     ┌──────────┐     ┌──────────┐               │
-│   │   SEED   │────▶│ RESEARCH │────▶│  PLAN    │──▶ IMPLEMENT  │
-│   └────┬─────┘     └────┬─────┘     └────┬─────┘               │
+│   ┌──────────┐     ┌──────────┐     ┌──────────┐                │
+│   │   SEED   │────▶│ RESEARCH │────▶│  PLAN    │──▶ IMPLEMENT   │
+│   └────┬─────┘     └────┬─────┘     └────┬─────┘                │
 │        │                │                │                      │
 │        ▼                ▼                ▼                      │
 │   write_knowledge   search_context  write_knowledge             │
 │   write_convention  write_knowledge (chunk_type=PLAN)           │
 │   (day zero)        write_memory                                │
 │                                                                 │
-│   hizal-seed       hizal-         hizal-                     │
+│   hizal-seed       hizal-         hizal-                        │
 │   (first use)       research         plan                       │
 │                                                                 │
-│   ┌──────────┐     ┌──────────┐     ┌──────────┐               │
-│   │ COMPACT  │◀────│ IMPLEMENT│────▶│  REVIEW  │               │
-│   └──────────┘     └──────────┘     └──────────┘               │
+│   ┌──────────┐     ┌──────────┐     ┌──────────┐                │
+│   │ COMPACT  │◀────│ IMPLEMENT│────▶│  REVIEW  │                │
+│   └──────────┘     └──────────┘     └──────────┘                │
 │                                                                 │
 │   compact_context  write_memory     review_context              │
 │   write_knowledge  write_knowledge                              │
 │                                                                 │
-│   hizal-compact   (write code)     hizal-review               │
+│   hizal-compact   (write code)     hizal-review                 │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -70,9 +70,9 @@ Research → Plan → Implement, mapped to Hizal's purpose-built tools:
 │                    RPI Workflow with Hizal                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
-│   ┌──────────┐     ┌──────────┐     ┌──────────┐               │
-│   │ RESEARCH │────▶│  PLAN    │────▶│ IMPLEMENT│               │
-│   └────┬─────┘     └────┬─────┘     └────┬─────┘               │
+│   ┌──────────┐     ┌──────────┐     ┌──────────┐                │
+│   │ RESEARCH │────▶│  PLAN    │────▶│ IMPLEMENT│                │
+│   └────┬─────┘     └────┬─────┘     └────┬─────┘                │
 │        │                │                │                      │
 │        ▼                ▼                ▼                      │
 │   search_context    write_knowledge  search_context             │
@@ -80,8 +80,8 @@ Research → Plan → Implement, mapped to Hizal's purpose-built tools:
 │   write_knowledge    PLAN)           write_knowledge            │
 │   write_memory                       compact_context            │
 │                                                                 │
-│   hizal-research   hizal-plan     hizal-compact              │
-│                                     hizal-review               │
+│   hizal-research   hizal-plan     hizal-compact                 │
+│                                     hizal-review                │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -210,13 +210,13 @@ Context Usage
                                │
                                ▼
                     ┌─────────────────────┐
-                    │  hizal-compact     │
+                    │  hizal-compact      │
                     │  (if chunks written)│
                     └──────────┬──────────┘
                                │
                                ▼
                     ┌─────────────────────┐
-                    │  hizal-review      │
+                    │  hizal-review       │
                     │  (rate used chunks) │
                     └──────────┬──────────┘
                                │
@@ -249,7 +249,7 @@ Context Usage
                                │
                                ▼
                     ┌─────────────────────┐
-                    │  hizal-compact     │
+                    │  hizal-compact      │
                     │  (save for handoff) │
                     └──────────┬──────────┘
                                │
@@ -262,7 +262,7 @@ Context Usage
                     ┌─────────────────────┐
                     │  Agent B starts     │
                     │  start_session()    │
-                    │  + hizal-onboard   │
+                    │  + hizal-onboard    │
                     └──────────┬──────────┘
                                │
                                ▼
