@@ -13,7 +13,8 @@ import (
 // ---- Input/Output types ----
 
 type StartSessionInput struct {
-	AgentID      string  `json:"agent_id"`
+	// AgentID is resolved from the API key — not required from the caller.
+	AgentID      string  `json:"-"`
 	ProjectID    *string `json:"project_id,omitempty"`
 	LifecycleSlug *string `json:"lifecycle_slug,omitempty"` // defaults to "default"
 }
@@ -170,10 +171,11 @@ func (t *Tools) fetchAlwaysInjectChunks(ctx context.Context, agentID string, pro
 // StartSession begins a new session for an agent.
 // Returns the session ID and all always_inject chunks for the agent's context window.
 // Fails if the agent already has an active session (use ResumeSession instead).
-func (t *Tools) StartSession(ctx context.Context, orgID string, in StartSessionInput) (*StartSessionResult, error) {
-	if in.AgentID == "" {
-		return nil, fmt.Errorf("agent_id is required")
+func (t *Tools) StartSession(ctx context.Context, orgID string, agentID string, in StartSessionInput) (*StartSessionResult, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("could not resolve agent from API key — ensure you are using an agent API key, not an org key")
 	}
+	in.AgentID = agentID
 
 	lifecycleSlug := "default"
 	if in.LifecycleSlug != nil && *in.LifecycleSlug != "" {

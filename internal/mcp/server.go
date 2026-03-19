@@ -319,11 +319,10 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"agent_id":       map[string]interface{}{"type": "string", "description": "UUID of the agent starting the session"},
 				"project_id":     map[string]interface{}{"type": "string", "description": "Primary project UUID for this session (optional)"},
 				"lifecycle_slug": map[string]interface{}{"type": "string", "description": "Lifecycle preset: default, dev, admin, or org custom slug. Defaults to 'default'."},
 			},
-			"required": []string{"agent_id"},
+			"required": []string{},
 		},
 	},
 	{
@@ -678,7 +677,11 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		return s.tools.StartSession(ctx, scope.OrgID, in)
+		agentID := ""
+		if scope.AgentID != nil {
+			agentID = *scope.AgentID
+		}
+		return s.tools.StartSession(ctx, scope.OrgID, agentID, in)
 
 	case "resume_session":
 		var in ResumeSessionInput
