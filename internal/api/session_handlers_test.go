@@ -67,9 +67,9 @@ func TestGetSessionConsolidationChunks(t *testing.T) {
 
 	sessionStartedAt := "2026-03-19T10:00:00Z"
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO sessions (id, agent_id, org_id, project_id, status, focus_task, started_at, chunks_written, chunks_read)
-		VALUES ($1, $2, $3, $4, 'ended', 'Test consolidation session', $5, 3, 0)
-	`, sessionID, agentID, orgID, projectID, sessionStartedAt); err != nil {
+		INSERT INTO sessions (id, agent_id, org_id, project_id, status, focus_task, started_at, expires_at, chunks_written, chunks_read)
+		VALUES ($1, $2, $3, $4, 'ended', 'Test consolidation session', $5, $6, 3, 0)
+	`, sessionID, agentID, orgID, projectID, sessionStartedAt, "2026-03-20T10:00:00Z"); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
 
