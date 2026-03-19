@@ -15,15 +15,91 @@ Bigger context windows don't fix this. More room to forget isn't memory. The ans
 
 ## What Winnow Does
 
-Winnow stores structured context chunks with semantic search, versioning, and scoping. Agents write what they learn. Future agents search and reuse it. Context compounds instead of evaporating.
+Winnow stores structured context chunks with semantic search, versioning, and three-scope ownership. Agents write what they learn. Future agents search and reuse it. Context compounds instead of evaporating.
 
 | Without Winnow | With Winnow |
 |----------------|-------------|
 | Agent re-reads the codebase every session | Agent searches existing knowledge in seconds |
-| Conventions violated repeatedly | Conventions always in context (`always_inject`) |
-| Identity drifts between sessions | Identity persists via `write_identity` |
+| Conventions violated repeatedly | Conventions deterministically injected every session |
+| Identity drifts between sessions | Identity persists and loads automatically |
 | Knowledge scattered across sessions | Structured chunks with semantic search |
+| Org norms exist only in human heads | Principles injected across all agents, all sessions |
 | Each session starts from zero | Each session builds on all previous sessions |
+
+---
+
+## What Makes Winnow Different
+
+### Three Scopes of Ownership
+
+Every chunk in Winnow has a scope. This isn't a filter — it's an ownership model that determines who can see, write, and benefit from each piece of knowledge.
+
+| Scope | Owner | Visibility | Example |
+|-------|-------|-----------|---------|
+| **PROJECT** | The project | All agents on this project | Architecture, API patterns, deploy config |
+| **AGENT** | The individual agent | Only this agent | Personal observations, learned patterns, identity |
+| **ORG** | The organization | All agents in the org | Team values, cross-project standards, org structure |
+
+This matters because not all knowledge is the same. An agent's personal observation about a tricky API ("this endpoint silently 401s without the tenant resolver") is AGENT-scoped memory. The architectural decision behind that behavior is PROJECT-scoped knowledge. The org's principle that "we prefer explicit errors over silent failures" is ORG-scoped.
+
+### Deterministic Context Injection
+
+Most context systems are retrieval-only — agents search and hope the right context surfaces. Winnow has a second mode: **always_inject**.
+
+Chunks marked `always_inject=true` are deterministically loaded into every session. No search required. No chance of missing them. They form a behavioral baseline:
+
+- **Identity** (`write_identity`) — who the agent is, always present, AGENT scope
+- **Conventions** (`write_convention`) — project rules every agent must follow, PROJECT scope
+- **Principles** (`store_principle`) — org values across all agents, ORG scope
+
+This is the difference between "the agent can look up the coding standards" and "the agent always knows the coding standards." Retrieval is probabilistic. Injection is deterministic. Both matter — Winnow gives you both.
+
+### Purpose-Built Primitives
+
+Instead of a generic `write(scope, inject, type)` API, Winnow provides six named tools whose names communicate intent and automatically set the right scope and injection behavior:
+
+| Tool | Scope | Injected | Purpose |
+|------|-------|----------|---------|
+| `write_identity` | Agent | ✅ always | Who this agent is — role, values, working style |
+| `write_memory` | Agent | on demand | Episodic observations — personal lessons, gotchas |
+| `write_knowledge` | Project | on demand | Shared facts — architecture, patterns, decisions |
+| `write_convention` | Project | ✅ always | Foundational rules — PRs required, naming conventions |
+| `write_org_knowledge` | Org | on demand | Org-wide facts — team composition, product history |
+| `store_principle` | Org | ✅ always | Org values — requires human approval, never agent-unilateral |
+
+The tool name IS the instruction. An agent calling `write_convention` doesn't need to think about scopes or injection flags — the primitive handles it. This reduces cognitive load for agents and eliminates miscategorization.
+
+### Agent Types and Lifecycle Presets
+
+Not every agent should see every tool. A junior dev agent shouldn't have `create_project`. A research agent doesn't need `store_principle`.
+
+Winnow ships four global agent types — **dev**, **admin**, **research**, **orchestrator** — each with a curated tool surface. Orgs can define custom types that inherit from these or start fresh.
+
+Session lifecycles work the same way. The `dev` lifecycle gives a 12-hour session with standard inject scopes. The `orchestrator` lifecycle gives 24 hours. Orgs can define custom lifecycles with their own TTLs, required steps, and consolidation thresholds.
+
+Both are primitives: agent types control *what tools are visible*, lifecycles control *how sessions behave*. Compose them to match your workflow.
+
+### Typed Chunks with Consolidation Behavior
+
+Every chunk has a `chunk_type` that describes its content and determines how it's handled at session end:
+
+| Type | Consolidation | Examples |
+|------|--------------|---------|
+| IDENTITY | keep | Agent role, values, working style |
+| CONVENTION | keep | PR rules, naming standards |
+| PRINCIPLE | keep | Org values, team norms |
+| KNOWLEDGE | keep | Architecture, patterns, decisions |
+| DECISION | keep | Architectural choices with rationale |
+| CONSTRAINT | keep | Hard boundaries, security rules |
+| MEMORY | surface at session end | Personal observations, learned patterns |
+| RESEARCH | surface at session end | Investigations, explorations |
+| PLAN | surface at session end | Implementation plans |
+| SPEC | surface at session end | Feature specifications |
+| LESSON | surface at session end | Distilled learnings |
+
+**"Keep"** types persist silently. **"Surface"** types are returned by `end_session` for the agent (or orchestrator) to review — promote to knowledge, keep as memory, or discard. This is how ephemeral observations get curated into durable institutional knowledge.
+
+Orgs can register custom chunk types with their own consolidation behavior.
 
 ---
 
@@ -62,6 +138,9 @@ Add to your MCP config (Claude Desktop, Cursor, OpenClaw, OpenCode, or any MCP c
 ### 3. Your agent now has persistent memory
 
 ```
+# Start a session — identity, conventions, principles load automatically
+start_session(lifecycle_slug="dev")
+
 # Search existing knowledge
 search_context(query="how does auth work", project_id="...")
 
@@ -73,68 +152,11 @@ write_knowledge(
   project_id="..."
 )
 
-# Next session — knowledge is still there
-search_context(query="auth") → returns the chunk you wrote
+# End session — MEMORY chunks returned for review
+end_session(session_id="...")
 ```
 
----
-
-## Core Concepts
-
-### Three Scopes
-
-Every chunk lives in a scope that determines who sees it:
-
-| Scope | Visibility | Example |
-|-------|-----------|---------|
-| **PROJECT** | All agents on this project | Architecture, API patterns, deploy config |
-| **AGENT** | Only this agent | Personal observations, work preferences |
-| **ORG** | All agents in the org | Team values, cross-project standards |
-
-### Always Inject
-
-Chunks marked `always_inject=true` are surfaced automatically — no search required. They form the behavioral baseline that shapes every interaction.
-
-- **Identity** (`write_identity`) — who the agent is, always present
-- **Conventions** (`write_convention`) — project rules, always present
-- **Principles** (`store_principle`) — org values, always present
-
-### Purpose-Built Write Tools
-
-Six tools whose names communicate intent:
-
-| Tool | Scope | Always Inject | Purpose |
-|------|-------|---------------|---------|
-| `write_identity` | Agent | ✅ | Who this agent is |
-| `write_memory` | Agent | No | Episodic observations |
-| `write_knowledge` | Project | No | Shared project facts |
-| `write_convention` | Project | ✅ | Foundational rules |
-| `write_org_knowledge` | Org | No | Org-wide facts |
-| `store_principle` | Org | ✅ | Org values (human-approved) |
-
-### Sessions
-
-Track agent work across a conversation:
-
-```
-start_session → identity + conventions injected automatically
-  ↓
-register_focus(task="...", project_id="...")
-  ↓
-work: search, write_knowledge, write_memory
-  ↓
-end_session → returns MEMORY chunks for review
-```
-
-### Chunk Types
-
-Label what a chunk contains: `KNOWLEDGE`, `MEMORY`, `CONVENTION`, `IDENTITY`, `PRINCIPLE`, `DECISION`, `RESEARCH`, `PLAN`, `SPEC`, `IMPLEMENTATION`, `CONSTRAINT`, `LESSON`.
-
-Types are metadata — Winnow labels chunks, it doesn't enforce state machines.
-
-### Compaction
-
-Over time, overlapping or redundant chunks accumulate. `compact_context` fetches related chunks so the agent can merge them into a single, cleaner chunk — housekeeping, not a workflow.
+Next session — knowledge is still there. Identity loads automatically. Conventions are always in context.
 
 ---
 
@@ -157,6 +179,16 @@ Over time, overlapping or redundant chunks accumulate. `compact_context` fetches
 - **text-embedding-3-small** for embeddings ($0.02/1M tokens)
 - **No server-side LLM** — agents do all reasoning client-side
 
+### Design Philosophy: Primitives → Simple Experiences
+
+Every feature is built as a primitive first, then assembled into simple experiences:
+
+1. **Primitives** — MCP tools (`search_context`, `write_knowledge`, `compact_context`) are powerful and composable
+2. **Simple experiences for agents** — Skills (`winnow-seed`, `winnow-research`, `winnow-plan`) are guided workflows built on primitives
+3. **Simple experiences for humans** — UI dashboards for viewing and managing context
+
+Power users access primitives directly. Guided workflows use the same primitives underneath. Nobody outgrows the product.
+
 ---
 
 ## MCP Tools
@@ -175,14 +207,14 @@ Full reference: [`docs/03-mcp-tools.md`](./docs/03-mcp-tools.md)
 
 ## Agent Skills
 
-Pre-built workflows for common patterns:
+Pre-built workflows composed from MCP primitives:
 
 | Skill | Purpose |
 |-------|---------|
 | `winnow-seed` | Populate a new project with foundational context |
 | `winnow-research` | Investigate a topic, fill knowledge gaps |
 | `winnow-plan` | Create implementation plans validated against context |
-| `winnow-compact` | Compress noisy context into high-signal summaries |
+| `winnow-compact` | Merge overlapping chunks into cleaner summaries |
 | `winnow-review` | Rate and improve context quality |
 | `winnow-onboard` | Get up to speed on a project fast |
 
