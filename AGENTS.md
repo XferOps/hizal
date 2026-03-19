@@ -85,13 +85,18 @@ Don't rediscover what the team already decided.
 
 ## Writing Code
 
-### Branch naming
-```
-feat/<ticket-id-lowercase>-<short-description>
+### ⚠️ Branch first, always
+
+Before writing a single line of code:
+
+```bash
+git checkout main && git pull
+git checkout -b feat/<ticket-id-lowercase>-<short-description>
 # e.g. feat/wnw-68-agent-types
 ```
 
-Always branch from `main`. Pull latest before branching.
+**Never commit directly to main.** If you realise you've committed to main, stop immediately —
+create a branch from your current HEAD and reset main before pushing anything.
 
 ### Stack
 - **Go 1.23** — API server (`internal/`)
@@ -146,23 +151,32 @@ Write one chunk per meaningful decision. Don't batch everything into one chunk a
 
 ---
 
-## Open the PR
+## Open the PR — this is not optional
+
+**Your session is not complete until a PR exists.** Tests passing and code written is not done.
+Done means: branch pushed, PR open, reviewers requested.
 
 ```bash
 gh pr create \
   --title "feat(<ticket-id-lowercase>): <description>" \
   --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n## Migration Impact\n\n<if any>"
 
-gh pr edit --add-reviewer parker-xferops,adam-xferops-ai
+gh pr edit --add-reviewer parker-xferops,quinn-xferops-ai,marcus-xferops-ai
 ```
 
-Always request review from `parker-xferops`.
+Always request review from `parker-xferops`. Always.
 
 Then update the Forge ticket with the PR link and move it to Code Review.
 
 ---
 
 ## End Your Session
+
+Only after the PR URL exists, call `winnow_end_session`:
+
+```
+winnow_end_session(session_id="<winnow-session-uuid>")
+```
 
 When the PR is open:
 
