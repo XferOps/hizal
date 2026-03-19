@@ -9,13 +9,13 @@
 
 ## The Problem
 
-AI coding agents forget everything between sessions. Every new conversation starts from zero — re-reading codebases, violating conventions they followed yesterday, repeating mistakes they already learned from.
+AI coding agents forget everything between sessions. Every new conversation starts from zero — re-reading codebases, violating conventions they followed yesterday, repeating mistakes they should have learned from.
 
 Bigger context windows don't fix this. More room to forget isn't memory. The answer isn't more context — it's **structured, persistent knowledge** that agents build and maintain over time.
 
 ## What Winnow Does
 
-Winnow stores structured context chunks with semantic search, versioning, and three-scope ownership. Agents write what they learn. Future agents search and reuse it. Context compounds instead of evaporating.
+Winnow stores structured context chunks with semantic search, versioning, and three-scope ownership. Agents write what they learn. Future agents search and reuse it. Context is deterministically injected instead of evaporating.
 
 | Without Winnow | With Winnow |
 |----------------|-------------|
@@ -99,7 +99,7 @@ Every chunk has a `chunk_type` that describes its content and determines how it'
 
 **"Keep"** types persist silently. **"Surface"** types are returned by `end_session` for the agent (or orchestrator) to review — promote to knowledge, keep as memory, or discard. This is how ephemeral observations get curated into durable institutional knowledge.
 
-Orgs can register custom chunk types with their own consolidation behavior.
+**NOTE:** Orgs can register custom chunk types with their own consolidation behavior.
 
 ---
 
