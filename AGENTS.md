@@ -3,12 +3,15 @@
 You are a dev agent working on the Winnow codebase (Go API + React/Vite frontend).
 This file tells you how to work here. Read it fully before doing anything else.
 
+Winnow is both the product you're building and the memory system you use to build it.
+Everything — specs, decisions, conventions, lessons — lives in Winnow.
+
 ---
 
 ## Your First Three Steps (always, no exceptions)
 
 1. **Start a Winnow session**
-2. **Read the task spec (from Forge)**
+2. **Read the task spec (from Winnow)**
 3. **Search Winnow for existing context on the task**
 
 Only then start writing code.
@@ -17,52 +20,79 @@ Only then start writing code.
 
 ## 1. Start a Winnow Session
 
-Winnow is the shared memory layer for this team. Every dev session starts and ends with it.
+Every dev session starts and ends with Winnow.
 
 ```
-winnow_start_session(
-  project_id="1651f741-6127-4653-9486-149d16028277",
-  lifecycle_slug="dev"
-)
+start_session(lifecycle_slug="dev")
 ```
 
-This returns a `session_id` — a Winnow UUID (e.g. `"a3f2c1d0-..."`). This is not your
-OpenCode session slug. Treat it like a variable and reference it explicitly in every
-subsequent session call. Keep it visible at the top of your working context.
+This returns a `session_id`. Keep it visible — you'll need it for `register_focus` and `end_session`.
 
-Then immediately register your focus:
+Then register what you're working on:
 
 ```
-winnow_register_focus(
-  session_id="<winnow-session-uuid>",
-  focus_task="<ticket ID>: <ticket title>"
+register_focus(
+  session_id="<session-id>",
+  task="WNW-XX: <ticket title>",
+  project_id="<project-id>"
 )
 ```
 
 ### Session Recovery
 
-If you lose track of your `session_id` (e.g. after a context reset or compaction), call:
+If you lose your `session_id` (context reset, compaction):
 
 ```
-winnow_get_active_session()
+get_active_session()
 ```
 
-- If it returns `status="active"` — use the returned `session_id` going forward, then call
-  `winnow_resume_session(session_id="...")` to extend the TTL and re-inject always_inject chunks.
-- If it returns `status="none"` — no active session exists; call `winnow_start_session` to begin a fresh one.
+- `status="active"` → use the returned `session_id`, call `resume_session` to extend TTL
+- `status="none"` → call `start_session` to begin fresh
 
 ---
 
 ## 2. Read the Task Spec
 
-**In our setup**, specs come from Forge (our project management tool) via the forge MCP:
+Specs are Winnow chunks with `chunk_type=SPEC`. Find your assigned work:
 
 ```
-forge_get_task(taskId="<ticket-id>")
+search_context(query="spec status TODO", project_id="<project-id>")
+search_context(query="spec BUG", project_id="<project-id>")
 ```
 
-The ticket description is the spec. Read it fully. Extract the key concepts and decisions
-before moving to step 3.
+Pick the highest-priority unblocked spec. Read it fully:
+
+```
+read_context(query_key="spec-wnw-XX-short-name", project_id="<project-id>")
+```
+
+The spec is your source of truth. Extract key concepts and decisions before moving to step 3.
+
+### Spec Chunk Format
+
+```
+query_key: spec-wnw-XX-short-description
+chunk_type: SPEC
+title: "WNW-XX: Human-readable title"
+
+**Priority:** CRITICAL | HIGH | MEDIUM | LOW
+**Status:** TODO | IN_PROGRESS | CODE_REVIEW | DONE | BLOCKED
+**Type:** BUG | FEATURE | CHORE
+**Repo:** winnow | winnow-ui
+**Depends on:** spec-wnw-YY (or "none")
+**Assigned:** <agent-name> | unassigned
+**PR:** <url when created>
+
+## Description
+What needs to be built or fixed.
+
+## Acceptance Criteria
+- [ ] Criterion 1
+- [ ] Criterion 2
+
+## Gotchas
+(Enriched after failed attempts or discoveries)
+```
 
 ---
 
@@ -71,21 +101,19 @@ before moving to step 3.
 Now that you know what you're building, search for prior decisions and conventions:
 
 ```
-winnow_search_context(
-  query="<key concept from the spec>",
-  project_id="1651f741-6127-4653-9486-149d16028277"
-)
+search_context(query="<key concept from the spec>", project_id="<project-id>")
 ```
 
-Run searches. Read the returned chunks — they contain architecture decisions, conventions,
-and prior design work that must inform your implementation.
+Run 2-3 searches with different phrasings. Read the returned chunks — they contain
+architecture decisions, conventions, and prior work that must inform your implementation.
+
 Don't rediscover what the team already decided.
 
 ---
 
 ## Writing Code
 
-### ⚠️ Branch first, always
+### Branch first, always
 
 Before writing a single line of code:
 
@@ -95,24 +123,26 @@ git checkout -b feat/<ticket-id-lowercase>-<short-description>
 # e.g. feat/wnw-68-agent-types
 ```
 
-**Never commit directly to main.** If you realise you've committed to main, stop immediately —
-create a branch from your current HEAD and reset main before pushing anything.
+**Never commit directly to main.** If you realize you've committed to main, stop —
+create a branch from your current HEAD and reset main before pushing.
 
 ### Stack
-- **Go 1.23** — API server (`internal/`)
-- **PostgreSQL** — migrations in `internal/db/migrations/` (sequential: `NNN_name.up.sql` / `NNN_name.down.sql`)
-- **React/Vite/TypeScript** — frontend (`winnow-ui/` repo, separate)
-- **pgvector** — embeddings on `context_chunks`
+
+- **Go 1.23+** — API server (`internal/`)
+- **PostgreSQL 16** with pgvector — embeddings on `context_chunks`
+- **Migrations** in `internal/db/migrations/` (sequential: `NNN_name.up.sql` / `NNN_name.down.sql`)
 
 ### Conventions
-- All API handlers in `internal/api/`
-- Models in `internal/models/models.go`
+
+- API handlers in `internal/api/`
+- Models in `internal/models/models.go` (canonical package for DB types)
 - MCP tools in `internal/mcp/`
 - New routes wired in `internal/api/router.go` under the appropriate auth group
 - Write at least one test for every new handler or MCP tool
 - `go build ./...` and `go test ./...` must be green before opening a PR
 
 ### Build check
+
 ```bash
 go build ./...
 go vet ./...
@@ -125,86 +155,98 @@ go test ./... -race -timeout 60s
 
 This is not optional. Write chunks as you make decisions — not just at the end.
 
-**Use the right tool for the right content:**
+| What you're writing | Tool | Scope |
+|---------------------|------|-------|
+| Architecture or design decision | `write_knowledge` | PROJECT |
+| Convention this codebase follows | `write_convention` | PROJECT (always_inject) |
+| Something personal you learned | `write_memory` | AGENT |
 
-| What you're writing | Tool |
-|---------------------|------|
-| Architecture or design decision made during this work | `winnow_write_knowledge` |
-| A convention this codebase follows (discovered or established) | `winnow_write_convention` |
-| Something personal you learned that will help you next time | `winnow_write_memory` |
-
-**Do not use `winnow_write_context`** — it's deprecated. Use the typed tools above.
-
-Example — after deciding how to handle global presets:
-```
-winnow_write_knowledge(
-  project_id="1651f741-6127-4653-9486-149d16028277",
-  query_key="agent-types-global-preset-pattern",
-  title="Agent Types: Global Presets Are Immutable",
-  content="Global presets (dev, admin, research, orchestrator) have org_id=NULL.
-  The API enforces immutability at the handler level — PATCH and DELETE return 403
-  for any type with org_id=NULL. Org-specific types are fully CRUD-able."
-)
-```
+**Do not use `write_context`** — it's deprecated. Use the purpose-built tools above.
 
 Write one chunk per meaningful decision. Don't batch everything into one chunk at the end.
 
 ---
 
-## Open the PR — this is not optional
+## Open the PR
 
 **Your session is not complete until a PR exists.** Tests passing and code written is not done.
 Done means: branch pushed, PR open, reviewers requested.
 
 ```bash
 gh pr create \
-  --title "feat(<ticket-id-lowercase>): <description>" \
-  --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n## Migration Impact\n\n<if any>"
+  --title "feat(wnw-XX): <description>" \
+  --body "## Summary\n\n<what you built>\n\nCloses WNW-XX\n\n## Testing\n\n<what you ran>"
 
-gh pr edit --add-reviewer parker-xferops,quinn-xferops-ai,marcus-xferops-ai
+gh pr edit --add-reviewer parker-xferops
 ```
 
-Always request review from `parker-xferops`. Always.
+Always request review from `parker-xferops`.
 
-Then update the Forge ticket with the PR link and move it to Code Review.
+After pushing fixes to address review feedback, **re-request review**:
+
+```bash
+gh api repos/XferOps/<repo>/pulls/<PR#>/requested_reviewers \
+  -X POST -f 'reviewers[]=parker-xferops'
+```
+
+---
+
+## Update the Spec
+
+After opening the PR, update the spec chunk with status and PR link:
+
+```
+update_context(
+  query_key="spec-wnw-XX-short-name",
+  project_id="<project-id>",
+  content="<spec content with Status: CODE_REVIEW and PR: <url>>",
+  change_note="PR opened: <url>"
+)
+```
 
 ---
 
 ## End Your Session
 
-Only after the PR URL exists, call `winnow_end_session`:
+After the PR is open and the spec is updated:
 
 ```
-winnow_end_session(session_id="<winnow-session-uuid>")
-```
-
-When the PR is open:
-
-```
-winnow_end_session(session_id="<session_id>")
+end_session(session_id="<session-id>")
 ```
 
 Review the returned MEMORY chunks. For each one, decide:
-- **Keep** — useful, leave it as-is
-- **Promote** — elevate to PROJECT KNOWLEDGE (call `winnow_write_knowledge` with the content)
+- **Keep** — useful personal observation, leave as AGENT memory
+- **Promote** — valuable for the team, call `write_knowledge` with the content
 - **Discard** — noise, ignore it
 
-This is how institutional knowledge compounds across agents and sessions.
+This is how knowledge compounds across agents and sessions.
 
 ---
 
-## Key IDs
+## Creating New Specs
 
-| Thing | ID |
-|-------|----|
-| Winnow product project | `1651f741-6127-4653-9486-149d16028277` |
-| Forge project (Winnow board) | `cmmhg1y1f0001le01gkx2a3sk` |
-| Lifecycle to use | `dev` |
+When you discover work that needs doing (bugs, improvements, missing features):
+
+```
+write_chunk(
+  project_id="<project-id>",
+  query_key="spec-wnw-XX-short-description",
+  title="WNW-XX: Title",
+  chunk_type="SPEC",
+  content="<spec in the format above>"
+)
+```
+
+Search existing specs to find the next available number:
+
+```
+search_context(query="spec WNW", project_id="<project-id>")
+```
 
 ---
 
 ## The Principle
 
 The prompt that kicked off your session is just a door opener.
-Everything else — the spec, the conventions, the prior decisions — lives in the task tracker and Winnow.
+Everything else — the spec, the conventions, the prior decisions — lives in Winnow.
 Read those first. Code second.
