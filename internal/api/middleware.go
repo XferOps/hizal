@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/XferOps/winnow/internal/auth"
+	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -148,7 +149,7 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			scopedReq := r.WithContext(ctx)
 
 			// Agent-scoped or org-scoped requests may not have a project_id.
-			// Resolve org from the agent or org param instead.
+			// Resolve org from the agent, org param, or chunk ID instead.
 			if projectID == "" {
 				agentID := r.URL.Query().Get("agent_id")
 				orgID := r.URL.Query().Get("org_id")
@@ -161,6 +162,21 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 					if err != nil {
 						writeAuthError(w, http.StatusBadRequest, "INVALID_AGENT", "agent not found")
 						return
+					}
+				}
+
+				// If no agent_id or org_id, try resolving from a chunk ID in the URL path.
+				// This covers GET/PATCH/DELETE /v1/context/:id and GET /v1/context/:id/versions.
+				if orgID == "" {
+					if chunkID := chi.URLParam(r, "id"); chunkID != "" {
+						_ = pool.QueryRow(r.Context(), `
+							SELECT COALESCE(
+								cc.org_id,
+								(SELECT p.org_id FROM projects p WHERE p.id = cc.project_id),
+								(SELECT a.org_id FROM agents a WHERE a.id = cc.agent_id)
+							)
+							FROM context_chunks cc WHERE cc.id = $1
+						`, chunkID).Scan(&orgID)
 					}
 				}
 
