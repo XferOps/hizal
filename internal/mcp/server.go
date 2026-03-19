@@ -65,9 +65,10 @@ func rpcErrResp(id interface{}, code int, msg string) jsonRPCResponse {
 // ---- Tool schemas for tools/list ----
 
 type toolSchema struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"inputSchema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  map[string]interface{} `json:"inputSchema"`
+	AllowedTypes []string               `json:"allowed_types,omitempty"`
 }
 
 var toolList = []toolSchema{
@@ -188,20 +189,21 @@ var toolList = []toolSchema{
 		},
 	},
 	{
-		Name:        "store_principle",
-		Description: "Store a PRINCIPLE chunk scoped to an org (always_inject=true). Requires promoted_by_user_id to enforce human promotion. Use for fundamental principles that agents must follow.",
+		Name:         "store_principle",
+		Description:  "Store a PRINCIPLE chunk scoped to an org (always_inject=true). Requires promoted_by_user_id to enforce human promotion. Use for fundamental principles that agents must follow.",
+		AllowedTypes: []string{"orchestrator", "admin"},
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"org_id":         map[string]interface{}{"type": "string", "description": "Org UUID to scope this principle"},
-				"query_key":      map[string]interface{}{"type": "string", "description": "Unique key for this principle topic"},
-				"title":          map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":        map[string]interface{}{"type": "string", "description": "Principle content"},
+				"org_id":              map[string]interface{}{"type": "string", "description": "Org UUID to scope this principle"},
+				"query_key":           map[string]interface{}{"type": "string", "description": "Unique key for this principle topic"},
+				"title":               map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":             map[string]interface{}{"type": "string", "description": "Principle content"},
 				"promoted_by_user_id": map[string]interface{}{"type": "string", "description": "User ID of the human who promoted this principle (required)"},
-				"source_file":    map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":   map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"source_file":         map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":        map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":             map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":             map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
 			},
 			"required": []string{"org_id", "query_key", "title", "content", "promoted_by_user_id"},
 		},
@@ -212,15 +214,15 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"project_id":        map[string]interface{}{"type": "string", "description": "Project UUID — required for PROJECT scope searches"},
-				"query":             map[string]interface{}{"type": "string", "description": "Search query"},
-				"scope":             map[string]interface{}{"type": "string", "description": "Filter to scope: PROJECT | AGENT | ORG. Omit to search all accessible scopes."},
-				"agent_id":          map[string]interface{}{"type": "string", "description": "Filter to AGENT-scoped chunks for this agent UUID"},
-				"org_id":            map[string]interface{}{"type": "string", "description": "Filter to ORG-scoped chunks for this org UUID"},
-				"chunk_type":        map[string]interface{}{"type": "string", "description": "Filter by chunk_type: KNOWLEDGE | MEMORY | CONVENTION | IDENTITY | PRINCIPLE"},
+				"project_id":         map[string]interface{}{"type": "string", "description": "Project UUID — required for PROJECT scope searches"},
+				"query":              map[string]interface{}{"type": "string", "description": "Search query"},
+				"scope":              map[string]interface{}{"type": "string", "description": "Filter to scope: PROJECT | AGENT | ORG. Omit to search all accessible scopes."},
+				"agent_id":           map[string]interface{}{"type": "string", "description": "Filter to AGENT-scoped chunks for this agent UUID"},
+				"org_id":             map[string]interface{}{"type": "string", "description": "Filter to ORG-scoped chunks for this org UUID"},
+				"chunk_type":         map[string]interface{}{"type": "string", "description": "Filter by chunk_type: KNOWLEDGE | MEMORY | CONVENTION | IDENTITY | PRINCIPLE"},
 				"always_inject_only": map[string]interface{}{"type": "boolean", "description": "If true, return only always_inject=true chunks"},
-				"limit":             map[string]interface{}{"type": "integer", "description": "Max results (default 10)"},
-				"query_key":         map[string]interface{}{"type": "string", "description": "Filter by exact query_key"},
+				"limit":              map[string]interface{}{"type": "integer", "description": "Max results (default 10)"},
+				"query_key":          map[string]interface{}{"type": "string", "description": "Filter by exact query_key"},
 			},
 			"required": []string{"query"},
 		},
@@ -432,7 +434,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "tools/list":
-		resp.Result = map[string]interface{}{"tools": toolList}
+		agentTypeSlug, err := s.resolveAgentType(ctx, r)
+		if err != nil {
+			log.Printf("resolve agent type for tools/list: %v", err)
+		}
+		filtered := filterToolList(toolList, agentTypeSlug)
+		resp.Result = map[string]interface{}{"tools": filtered}
 
 	case "tools/call":
 		var params struct {
@@ -841,6 +848,54 @@ func (s *Server) queryAccessibleProjects(ctx context.Context, scope *apiKeyScope
 		})
 	}
 	return projects, rows.Err()
+}
+
+func (s *Server) resolveAgentType(ctx context.Context, r *http.Request) (string, error) {
+	scope, err := s.loadAPIKeyScope(ctx, r)
+	if err != nil {
+		return "", err
+	}
+
+	if scope.AgentID == nil {
+		return "", nil
+	}
+
+	var agentTypeSlug *string
+	err = s.pool.QueryRow(ctx, `
+		SELECT at.slug
+		FROM agents a
+		LEFT JOIN agent_types at ON at.id = a.type_id
+		WHERE a.id = $1
+	`, *scope.AgentID).Scan(&agentTypeSlug)
+	if err != nil {
+		return "", fmt.Errorf("resolve agent type: %w", err)
+	}
+
+	if agentTypeSlug == nil {
+		return "", nil
+	}
+	return *agentTypeSlug, nil
+}
+
+func filterToolList(tools []toolSchema, agentTypeSlug string) []toolSchema {
+	if agentTypeSlug == "" {
+		return tools
+	}
+
+	filtered := make([]toolSchema, 0, len(tools))
+	for _, tool := range tools {
+		if len(tool.AllowedTypes) == 0 {
+			filtered = append(filtered, tool)
+			continue
+		}
+		for _, t := range tool.AllowedTypes {
+			if t == agentTypeSlug {
+				filtered = append(filtered, tool)
+				break
+			}
+		}
+	}
+	return filtered
 }
 
 func mustJSON(v interface{}) string {
