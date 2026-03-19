@@ -21,22 +21,35 @@ Winnow is the shared memory layer for this team. Every dev session starts and en
 
 ```
 winnow_start_session(
-  agent_id="opencode-<your-session-slug>",
   project_id="1651f741-6127-4653-9486-149d16028277",
   lifecycle_slug="dev"
 )
 ```
 
-Save the returned `session_id` — you'll need it throughout.
+This returns a `session_id` — a Winnow UUID (e.g. `"a3f2c1d0-..."`). This is not your
+OpenCode session slug. Treat it like a variable and reference it explicitly in every
+subsequent session call. Keep it visible at the top of your working context.
 
 Then immediately register your focus:
 
 ```
 winnow_register_focus(
-  session_id="<session_id>",
+  session_id="<winnow-session-uuid>",
   focus_task="<ticket ID>: <ticket title>"
 )
 ```
+
+### Session Recovery
+
+If you lose track of your `session_id` (e.g. after a context reset or compaction), call:
+
+```
+winnow_get_active_session()
+```
+
+- If it returns `status="active"` — use the returned `session_id` going forward, then call
+  `winnow_resume_session(session_id="...")` to extend the TTL and re-inject always_inject chunks.
+- If it returns `status="none"` — no active session exists; call `winnow_start_session` to begin a fresh one.
 
 ---
 

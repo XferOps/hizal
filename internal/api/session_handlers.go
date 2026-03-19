@@ -29,10 +29,19 @@ func resolveOrgID(r *http.Request) string {
 
 // POST /v1/sessions
 // Body: { agent_id, project_id?, lifecycle_slug? }
+// agent_id is required in the REST body (JWT/human path — caller specifies which agent).
 func (h *SessionHandlers) StartSession(w http.ResponseWriter, r *http.Request) {
-	var in mcp.StartSessionInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	var body struct {
+		AgentID      string  `json:"agent_id"`
+		ProjectID    *string `json:"project_id,omitempty"`
+		LifecycleSlug *string `json:"lifecycle_slug,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+	if body.AgentID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "agent_id is required")
 		return
 	}
 	orgID := resolveOrgID(r)
@@ -40,7 +49,11 @@ func (h *SessionHandlers) StartSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "org context required")
 		return
 	}
-	result, err := h.tools.StartSession(r.Context(), orgID, in)
+	in := mcp.StartSessionInput{
+		ProjectID:     body.ProjectID,
+		LifecycleSlug: body.LifecycleSlug,
+	}
+	result, err := h.tools.StartSession(r.Context(), orgID, body.AgentID, in)
 	if err != nil {
 		writeError(w, http.StatusConflict, "SESSION_ERROR", err.Error())
 		return

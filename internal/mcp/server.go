@@ -319,11 +319,19 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"agent_id":       map[string]interface{}{"type": "string", "description": "UUID of the agent starting the session"},
 				"project_id":     map[string]interface{}{"type": "string", "description": "Primary project UUID for this session (optional)"},
 				"lifecycle_slug": map[string]interface{}{"type": "string", "description": "Lifecycle preset: default, dev, admin, or org custom slug. Defaults to 'default'."},
 			},
-			"required": []string{"agent_id"},
+			"required": []string{},
+		},
+	},
+	{
+		Name:        "get_active_session",
+		Description: "Returns the calling agent's current active session, derived from the API key. No input required. Use this to recover your session_id after a context reset or compaction. Returns status='none' if no active session exists — call start_session in that case.",
+		InputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+			"required":   []string{},
 		},
 	},
 	{
@@ -678,7 +686,22 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		return s.tools.StartSession(ctx, scope.OrgID, in)
+		agentID := ""
+		if scope.AgentID != nil {
+			agentID = *scope.AgentID
+		}
+		return s.tools.StartSession(ctx, scope.OrgID, agentID, in)
+
+	case "get_active_session":
+		scope, err := s.loadAPIKeyScope(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		agentID := ""
+		if scope.AgentID != nil {
+			agentID = *scope.AgentID
+		}
+		return s.tools.GetActiveSession(ctx, agentID)
 
 	case "resume_session":
 		var in ResumeSessionInput
