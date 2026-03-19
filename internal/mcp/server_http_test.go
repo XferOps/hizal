@@ -79,3 +79,62 @@ func TestServeHTTPRejectsUnsupportedTransportMethods(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterToolList(t *testing.T) {
+	tools := []toolSchema{
+		{Name: "tool_a"},
+		{Name: "tool_b", AllowedTypes: []string{"orchestrator"}},
+		{Name: "tool_c", AllowedTypes: []string{"admin"}},
+		{Name: "tool_d", AllowedTypes: []string{"orchestrator", "admin"}},
+		{Name: "tool_e"},
+	}
+
+	t.Run("empty agent type returns all tools", func(t *testing.T) {
+		filtered := filterToolList(tools, "")
+		if len(filtered) != len(tools) {
+			t.Fatalf("expected %d tools, got %d", len(tools), len(filtered))
+		}
+	})
+
+	t.Run("orchestrator sees tools with no type and orchestrator", func(t *testing.T) {
+		filtered := filterToolList(tools, "orchestrator")
+		if len(filtered) != 4 {
+			t.Fatalf("expected 4 tools, got %d", len(filtered))
+		}
+		names := make(map[string]bool)
+		for _, t := range filtered {
+			names[t.Name] = true
+		}
+		if !names["tool_a"] || !names["tool_b"] || !names["tool_d"] || !names["tool_e"] {
+			t.Errorf("expected tool_a, tool_b, tool_d, tool_e; got %v", names)
+		}
+	})
+
+	t.Run("admin sees tools with no type and admin", func(t *testing.T) {
+		filtered := filterToolList(tools, "admin")
+		if len(filtered) != 4 {
+			t.Fatalf("expected 4 tools, got %d", len(filtered))
+		}
+		names := make(map[string]bool)
+		for _, t := range filtered {
+			names[t.Name] = true
+		}
+		if !names["tool_a"] || !names["tool_c"] || !names["tool_d"] || !names["tool_e"] {
+			t.Errorf("expected tool_a, tool_c, tool_d, tool_e; got %v", names)
+		}
+	})
+
+	t.Run("dev only sees tools with no type", func(t *testing.T) {
+		filtered := filterToolList(tools, "dev")
+		if len(filtered) != 2 {
+			t.Fatalf("expected 2 tools (no restrictions), got %d", len(filtered))
+		}
+		names := make(map[string]bool)
+		for _, t := range filtered {
+			names[t.Name] = true
+		}
+		if !names["tool_a"] || !names["tool_e"] {
+			t.Errorf("expected tool_a, tool_e; got %v", names)
+		}
+	})
+}
