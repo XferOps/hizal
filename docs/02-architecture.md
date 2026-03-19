@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Hizal Platform                      │
+│                         Hizal Platform                          │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐     ┌─────────────┐     ┌─────────────────┐    │
@@ -288,9 +288,9 @@ Authorization: Bearer ctx_your-org_xxxxxxxx
 
 | Permission | write_context | search_context | compact_context |
 |------------|---------------|----------------|-----------------|
-| read       | ❌            | ✅             | ✅ (read only)  |
-| write      | ✅            | ✅             | ✅              |
-| compact    | ✅            | ✅             | ✅              |
+| read       | ❌            | ✅             | ✅ (read only)   |
+| write      | ✅            | ✅             | ✅               |
+| compact    | ✅            | ✅             | ✅               |
 
 ---
 
