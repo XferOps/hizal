@@ -21,7 +21,6 @@ Winnow is the shared memory layer for this team. Every dev session starts and en
 
 ```
 winnow_start_session(
-  agent_id="opencode-<your-session-slug>",
   project_id="1651f741-6127-4653-9486-149d16028277",
   lifecycle_slug="dev"
 )
