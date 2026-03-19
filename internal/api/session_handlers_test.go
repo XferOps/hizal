@@ -104,7 +104,7 @@ func TestGetSessionConsolidationChunks(t *testing.T) {
 		routeCtx := chi.NewRouteContext()
 		routeCtx.URLParams.Add("id", sessionID)
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
-		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: "test@example.com"}))
+		req = req.WithContext(withClaims(req.Context(), AuthClaims{OrgID: orgID}))
 
 		rr := httptest.NewRecorder()
 		NewSessionHandlers(nil, pool).GetSessionConsolidationChunks(rr, req)
@@ -158,7 +158,7 @@ func TestGetSessionConsolidationChunks(t *testing.T) {
 		routeCtx := chi.NewRouteContext()
 		routeCtx.URLParams.Add("id", sessionID)
 		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
-		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: "test@example.com"}))
+		req = req.WithContext(withClaims(req.Context(), AuthClaims{OrgID: orgID}))
 
 		rr := httptest.NewRecorder()
 		NewSessionHandlers(nil, pool).GetSessionMemoryChunks(rr, req)
