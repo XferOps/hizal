@@ -326,6 +326,15 @@ var toolList = []toolSchema{
 		},
 	},
 	{
+		Name:        "get_active_session",
+		Description: "Returns the calling agent's current active session, derived from the API key. No input required. Use this to recover your session_id after a context reset or compaction. Returns status='none' if no active session exists — call start_session in that case.",
+		InputSchema: map[string]interface{}{
+			"type":       "object",
+			"properties": map[string]interface{}{},
+			"required":   []string{},
+		},
+	},
+	{
 		Name:        "resume_session",
 		Description: "Extend an existing active session's TTL and re-inject always_inject chunks fresh. Use after a break or when resuming across tool calls.",
 		InputSchema: map[string]interface{}{
@@ -682,6 +691,17 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 			agentID = *scope.AgentID
 		}
 		return s.tools.StartSession(ctx, scope.OrgID, agentID, in)
+
+	case "get_active_session":
+		scope, err := s.loadAPIKeyScope(ctx, r)
+		if err != nil {
+			return nil, err
+		}
+		agentID := ""
+		if scope.AgentID != nil {
+			agentID = *scope.AgentID
+		}
+		return s.tools.GetActiveSession(ctx, agentID)
 
 	case "resume_session":
 		var in ResumeSessionInput

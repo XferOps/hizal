@@ -386,3 +386,58 @@ func (t *Tools) EndSession(ctx context.Context, orgID string, in EndSessionInput
 		WriteChunks:   writeChunks,
 	}, nil
 }
+
+// GetActiveSessionResult is returned by GetActiveSession.
+type GetActiveSessionResult struct {
+	SessionID     *string `json:"session_id"`
+	Status        string  `json:"status"` // "active" | "none"
+	LifecycleSlug *string `json:"lifecycle_slug,omitempty"`
+	FocusTask     *string `json:"focus_task,omitempty"`
+	ExpiresAt     *string `json:"expires_at,omitempty"`
+	ChunksWritten int     `json:"chunks_written"`
+	ResumeCount   int     `json:"resume_count"`
+	Message       string  `json:"message"`
+}
+
+// GetActiveSession returns the calling agent's current active session, derived
+// from the API key. No input required. Returns status="none" if no active session exists.
+func (t *Tools) GetActiveSession(ctx context.Context, agentID string) (*GetActiveSessionResult, error) {
+	if agentID == "" {
+		return nil, fmt.Errorf("could not resolve agent from API key — ensure you are using an agent API key, not an org key")
+	}
+
+	var (
+		sessionID     string
+		lifecycleSlug string
+		focusTask     *string
+		expiresAt     string
+		chunksWritten int
+		resumeCount   int
+	)
+
+	err := t.pool.QueryRow(ctx, `
+		SELECT s.id, sl.slug, s.focus_task, s.expires_at, s.chunks_written, s.resume_count
+		FROM sessions s
+		JOIN session_lifecycles sl ON sl.id = s.lifecycle_id
+		WHERE s.agent_id = $1 AND s.status = 'active'
+		LIMIT 1
+	`, agentID).Scan(&sessionID, &lifecycleSlug, &focusTask, &expiresAt, &chunksWritten, &resumeCount)
+	if err != nil {
+		// No active session found.
+		return &GetActiveSessionResult{
+			Status:  "none",
+			Message: "no active session — call start_session to begin one",
+		}, nil
+	}
+
+	return &GetActiveSessionResult{
+		SessionID:     &sessionID,
+		Status:        "active",
+		LifecycleSlug: &lifecycleSlug,
+		FocusTask:     focusTask,
+		ExpiresAt:     &expiresAt,
+		ChunksWritten: chunksWritten,
+		ResumeCount:   resumeCount,
+		Message:       "active session found — use this session_id to continue; call resume_session to extend TTL if needed",
+	}, nil
+}
