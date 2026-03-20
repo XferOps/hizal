@@ -712,8 +712,8 @@ func TestReadContextByQueryKey(t *testing.T) {
 	previousContent := string(encodeContent("Previous content"))
 
 	if _, err := pool.Exec(ctx, `
-		INSERT INTO context_chunks (id, project_id, scope, always_inject, chunk_type, query_key, title, content, source_lines, gotchas, related)
-		VALUES ($1, $2, 'PROJECT', true, 'SPEC', $3, $4, $5::jsonb, 'null'::jsonb, '[]'::jsonb, '[]'::jsonb)
+		INSERT INTO context_chunks (id, project_id, scope, inject_audience, chunk_type, query_key, title, content, source_lines, gotchas, related)
+		VALUES ($1, $2, 'PROJECT', '{"rules":[{"all":true}]}'::jsonb, 'SPEC', $3, $4, $5::jsonb, 'null'::jsonb, '[]'::jsonb, '[]'::jsonb)
 	`, chunkID, projectID, queryKey, "WNW-80 Spec", currentContent); err != nil {
 		t.Fatalf("insert chunk: %v", err)
 	}

@@ -88,7 +88,7 @@ func TestGetSessionConsolidationChunks(t *testing.T) {
 	for _, c := range chunks {
 		var injectVal interface{}
 		if c.inject {
-			injectVal = `'{"rules":[{"all":true}]}'`
+			injectVal = `{"rules":[{"all":true}]}`
 		}
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO context_chunks (id, agent_id, org_id, project_id, query_key, title, scope, chunk_type, inject_audience, created_at)

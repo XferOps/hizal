@@ -650,7 +650,7 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 	}
 
 	query := `
-		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.always_inject, cc.chunk_type,
+		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.inject_audience, cc.chunk_type,
 		       cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file, cc.source_lines,
 		       cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
 		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version
@@ -1094,7 +1094,7 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
 		VALUES (NULL, $1, $2, NULL, $3, 'MEMORY', $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, defaults.DefaultInjectAudience, in.QueryKey, in.Title, contentJSON, vec,
@@ -1164,7 +1164,7 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
 		VALUES ($1, $2, NULL, NULL, $3, 'KNOWLEDGE', $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, defaults.DefaultInjectAudience, in.QueryKey, in.Title, contentJSON, vec,
@@ -1234,7 +1234,7 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
 		VALUES ($1, $2, NULL, NULL, $3, 'CONVENTION', $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, defaults.DefaultInjectAudience, in.QueryKey, in.Title, contentJSON, vec,
@@ -1295,7 +1295,7 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
 		VALUES (NULL, 'ORG', NULL, $1, $2, 'KNOWLEDGE', $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at
 	`, orgID, defaults.DefaultInjectAudience, in.QueryKey, in.Title, contentJSON, vec,
@@ -1360,7 +1360,7 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, always_inject, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
 		VALUES (NULL, 'ORG', NULL, $1, $2, 'PRINCIPLE', $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING id, created_at
 	`, orgID, defaults.DefaultInjectAudience, in.QueryKey, in.Title, contentJSON, vec,
