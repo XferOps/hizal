@@ -175,7 +175,7 @@ Done means: branch pushed, PR open, reviewers requested.
 ```bash
 gh pr create \
   --title "feat(wnw-XX): <description>" \
-  --body "## Summary\n\n<what you built>\n\nCloses WNW-XX\n\n## Testing\n\n<what you ran>"
+  --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n---\n**Forge ticket:** [WNW-XX](https://forge.xferops.dev/projects/cmmhg1y1f0001le01gkx2a3sk) — <ticket title>"
 
 gh pr edit --add-reviewer parker-xferops
 ```
