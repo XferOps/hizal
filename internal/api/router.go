@@ -55,6 +55,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	}
 	agentTypeH := NewAgentTypeHandlers(pool)
 	chunkTypeH := NewChunkTypeHandlers(pool)
+	reviewH := NewReviewHandlers(pool)
 	// Stripe webhook — no JWT auth, verified by Stripe-Signature header
 	r.Post("/v1/webhooks/stripe", billingH.HandleWebhook)
 
@@ -158,6 +159,9 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Get("/v1/chunk-types/{id}", chunkTypeH.GetChunkType)
 		r.Patch("/v1/chunk-types/{id}", chunkTypeH.UpdateChunkType)
 		r.Delete("/v1/chunk-types/{id}", chunkTypeH.DeleteChunkType)
+
+		// Review inbox
+		r.Get("/v1/orgs/{id}/review-inbox", reviewH.ReviewInbox)
 
 		// Sessions
 		if sessionH != nil {
