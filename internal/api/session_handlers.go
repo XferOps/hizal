@@ -256,7 +256,7 @@ func (h *SessionHandlers) GetSessionConsolidationChunks(w http.ResponseWriter, r
 	}
 
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT cc.id, cc.query_key, cc.title, cc.scope, cc.chunk_type, cc.inject_audience, cc.created_at
+		SELECT cc.id, cc.query_key, cc.title, cc.scope, cc.chunk_type, cc.created_at
 		FROM context_chunks cc
 		JOIN chunk_types ct ON ct.slug = cc.chunk_type
 		WHERE cc.agent_id = (SELECT agent_id FROM sessions WHERE id = $1 AND org_id = $2)
