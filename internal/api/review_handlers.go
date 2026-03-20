@@ -46,6 +46,15 @@ type ReviewInboxResponse struct {
 
 func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 	orgID := chi.URLParam(r, "id")
+	// Require auth — either API key claims or JWT user.
+	// In production the JWT-protected route group handles this via middleware,
+	// but we guard explicitly for defense-in-depth and direct-handler tests.
+	if _, ok := ClaimsFrom(r.Context()); !ok {
+		if _, ok := JWTUserFrom(r.Context()); !ok {
+			writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "authentication required")
+			return
+		}
+	}
 	ctx := r.Context()
 
 	rows, err := h.pool.Query(ctx, `
