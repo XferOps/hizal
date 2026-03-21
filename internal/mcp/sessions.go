@@ -588,7 +588,7 @@ func (t *Tools) GetActiveSession(ctx context.Context, agentID string) (*GetActiv
 		sessionID      string
 		lifecycleSlug  string
 		focusTask      *string
-		expiresAt      string
+		expiresAt      time.Time // TIMESTAMPTZ — scan to time.Time then format
 		chunksWritten  int
 		resumeCount    int
 		injectSetBytes []byte // inject_set is JSONB — scan to []byte then unmarshal
@@ -618,13 +618,14 @@ func (t *Tools) GetActiveSession(ctx context.Context, agentID string) (*GetActiv
 	if len(injectSetBytes) > 0 {
 		_ = json.Unmarshal(injectSetBytes, &injectSet)
 	}
+	expiresAtStr := expiresAt.Format(time.RFC3339)
 
 	return &GetActiveSessionResult{
 		SessionID:     &sessionID,
 		Status:        "active",
 		LifecycleSlug: &lifecycleSlug,
 		FocusTask:     focusTask,
-		ExpiresAt:     &expiresAt,
+		ExpiresAt:     &expiresAtStr,
 		ChunksWritten: chunksWritten,
 		ResumeCount:   resumeCount,
 		InjectSet:     injectSet,
