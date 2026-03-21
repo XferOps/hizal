@@ -75,6 +75,7 @@ type Agent struct {
 	// false (default): knowledge-only — PROJECT + ORG scope only.
 	// true:            full behavior-driven — AGENT scope unlocked (Pro tier).
 	MemoryEnabled bool      `json:"memory_enabled" db:"memory_enabled"`
+	Tags          []string  `json:"tags" db:"tags"`
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -277,6 +278,7 @@ type Session struct {
 	LifecycleID       *string    `json:"lifecycle_id,omitempty" db:"lifecycle_id"`
 	Status            string     `json:"status" db:"status"` // active | ended | expired
 	FocusTask         *string    `json:"focus_task,omitempty" db:"focus_task"`
+	FocusTags         []string   `json:"focus_tags,omitempty" db:"focus_tags"`
 	ChunksWritten     int        `json:"chunks_written" db:"chunks_written"`
 	ChunksRead        int        `json:"chunks_read" db:"chunks_read"`
 	ConsolidationDone bool       `json:"consolidation_done" db:"consolidation_done"`
