@@ -113,17 +113,15 @@ func (h *PublicHandlers) ListPublicChunks(w http.ResponseWriter, r *http.Request
 	for rows.Next() {
 		var chunk PublicChunkResponse
 		var contentBytes []byte
-		var tagsBytes []byte
 		if err := rows.Scan(
 			&chunk.ID, &chunk.Title, &contentBytes, &chunk.ChunkType, &chunk.QueryKey,
-			&tagsBytes, &chunk.OrgName, &chunk.OrgSlug,
+			&chunk.Tags, &chunk.OrgName, &chunk.OrgSlug,
 			&chunk.CreatedAt, &chunk.UpdatedAt, &totalCount,
 		); err != nil {
 			writeError(w, http.StatusInternalServerError, "SCAN_FAILED", err.Error())
 			return
 		}
 		json.Unmarshal(contentBytes, &chunk.Content)
-		json.Unmarshal(tagsBytes, &chunk.Tags)
 		chunks = append(chunks, chunk)
 	}
 
@@ -152,7 +150,6 @@ func (h *PublicHandlers) GetPublicChunk(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	var chunk PublicChunkResponse
 	var contentBytes []byte
-	var tagsBytes []byte
 
 	err := h.pool.QueryRow(ctx, `
 		SELECT
@@ -165,7 +162,7 @@ func (h *PublicHandlers) GetPublicChunk(w http.ResponseWriter, r *http.Request) 
 		WHERE cc.id = $1 AND cc.visibility = 'public'
 	`, chunkID).Scan(
 		&chunk.ID, &chunk.Title, &contentBytes, &chunk.ChunkType, &chunk.QueryKey,
-		&tagsBytes, &chunk.OrgName, &chunk.OrgSlug,
+		&chunk.Tags, &chunk.OrgName, &chunk.OrgSlug,
 		&chunk.CreatedAt, &chunk.UpdatedAt,
 	)
 	if err != nil {
@@ -174,7 +171,6 @@ func (h *PublicHandlers) GetPublicChunk(w http.ResponseWriter, r *http.Request) 
 	}
 
 	json.Unmarshal(contentBytes, &chunk.Content)
-	json.Unmarshal(tagsBytes, &chunk.Tags)
 
 	writeJSON(w, http.StatusOK, chunk)
 }
@@ -240,14 +236,12 @@ func (h *PublicHandlers) SearchPublicChunks(w http.ResponseWriter, r *http.Reque
 				for rows.Next() {
 					var chunk PublicChunkResponse
 					var contentBytes []byte
-					var tagsBytes []byte
 					if err := rows.Scan(
 						&chunk.ID, &chunk.Title, &contentBytes, &chunk.ChunkType, &chunk.QueryKey,
-						&tagsBytes, &chunk.OrgName, &chunk.OrgSlug,
+						&chunk.Tags, &chunk.OrgName, &chunk.OrgSlug,
 						&chunk.CreatedAt, &chunk.UpdatedAt,
 					); err == nil {
 						json.Unmarshal(contentBytes, &chunk.Content)
-						json.Unmarshal(tagsBytes, &chunk.Tags)
 						chunks = append(chunks, chunk)
 					}
 				}
@@ -280,14 +274,12 @@ func (h *PublicHandlers) SearchPublicChunks(w http.ResponseWriter, r *http.Reque
 		for rows.Next() {
 			var chunk PublicChunkResponse
 			var contentBytes []byte
-			var tagsBytes []byte
 			if err := rows.Scan(
 				&chunk.ID, &chunk.Title, &contentBytes, &chunk.ChunkType, &chunk.QueryKey,
-				&tagsBytes, &chunk.OrgName, &chunk.OrgSlug,
+				&chunk.Tags, &chunk.OrgName, &chunk.OrgSlug,
 				&chunk.CreatedAt, &chunk.UpdatedAt,
 			); err == nil {
 				json.Unmarshal(contentBytes, &chunk.Content)
-				json.Unmarshal(tagsBytes, &chunk.Tags)
 				chunks = append(chunks, chunk)
 			}
 		}
