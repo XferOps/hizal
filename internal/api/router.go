@@ -67,6 +67,14 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Get("/api/v1/public/chunks/{chunkID}", pubH.GetPublicChunk)
 	})
 
+	// ── Public hub routes (JWT auth required) ──────────────────────────────
+	// Rate: 20 adds per user per hour (20/3600 = 0.0056 per second)
+	r.Group(func(r chi.Router) {
+		r.Use(JWTAuth())
+		r.Use(UserRateLimit(20.0/3600.0, 20))
+		r.Post("/api/v1/public/chunks/{chunkID}/add", pubH.AddPublicChunk)
+	})
+
 	// Stripe webhook — no JWT auth, verified by Stripe-Signature header
 	r.Post("/v1/webhooks/stripe", billingH.HandleWebhook)
 
@@ -185,6 +193,10 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			r.Post("/v1/sessions/{id}/consolidate", sessionH.ConsolidateSession)
 			r.Get("/v1/orgs/{id}/sessions", sessionH.ListSessions)
 			r.Get("/v1/orgs/{id}/session-lifecycles", sessionH.ListSessionLifecycles)
+			r.Post("/v1/orgs/{id}/session-lifecycles", sessionH.CreateSessionLifecycle)
+			r.Get("/v1/session-lifecycles/{id}", sessionH.GetSessionLifecycle)
+			r.Patch("/v1/session-lifecycles/{id}", sessionH.UpdateSessionLifecycle)
+			r.Delete("/v1/session-lifecycles/{id}", sessionH.DeleteSessionLifecycle)
 		}
 	})
 
