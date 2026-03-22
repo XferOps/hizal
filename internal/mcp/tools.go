@@ -257,6 +257,7 @@ type ReadContextInput struct {
 type VersionResult struct {
 	Version    int       `json:"version"`
 	ChangeNote string    `json:"change_note,omitempty"`
+	Content    string    `json:"content,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -873,7 +874,7 @@ func (t *Tools) GetContextVersions(ctx context.Context, projectID, id string, li
 	}
 
 	rows, err := pool(t).Query(ctx, `
-		SELECT version, change_note, created_at FROM context_versions
+		SELECT version, change_note, content, created_at FROM context_versions
 		WHERE chunk_id = $1 ORDER BY version DESC LIMIT $2
 	`, id, limit)
 	if err != nil {
@@ -884,8 +885,12 @@ func (t *Tools) GetContextVersions(ctx context.Context, projectID, id string, li
 	versions := []VersionResult{}
 	for rows.Next() {
 		var v VersionResult
-		if err := rows.Scan(&v.Version, &v.ChangeNote, &v.CreatedAt); err != nil {
+		var contentBytes []byte
+		if err := rows.Scan(&v.Version, &v.ChangeNote, &contentBytes, &v.CreatedAt); err != nil {
 			return nil, err
+		}
+		if len(contentBytes) > 0 {
+			v.Content = string(contentBytes)
 		}
 		versions = append(versions, v)
 	}
