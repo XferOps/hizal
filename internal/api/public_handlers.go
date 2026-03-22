@@ -356,7 +356,8 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	var sourceTitle, sourceContent, sourceChunkType, sourceQueryKey string
-	var sourceTags, sourceSourceLines, sourceGotchas, sourceRelated []byte
+	var sourceTags []string
+	var sourceSourceLines, sourceGotchas, sourceRelated []byte
 	var sourceProjectID, sourceAgentID, sourceCreatedByAgent *string
 	var sourceInjectAudience []byte
 	var sourceScope, sourceVisibility, sourceOrgName string
