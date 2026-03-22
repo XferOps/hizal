@@ -11,9 +11,9 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_USER: winnow
+          POSTGRES_USER: hizal
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: winnow_test
+          POSTGRES_DB: hizal_test
         ports:
           - 5432:5432
         options: >-
@@ -35,14 +35,14 @@ jobs:
 
       - name: Run migrations
         env:
-          DATABASE_URL: postgres://winnow:test@localhost:5432/winnow_test?sslmode=disable
+          DATABASE_URL: postgres://hizal:test@localhost:5432/hizal_test?sslmode=disable
         run: |
           curl -sSL https://github.com/golang-migrate/migrate/releases/download/v4.18.3/migrate.linux-amd64.tar.gz | tar -xz
           ./migrate -path ./internal/db/migrations -database "$DATABASE_URL" up
 
       - name: Test
         env:
-          DATABASE_URL: postgres://winnow:test@localhost:5432/winnow_test?sslmode=disable
+          DATABASE_URL: postgres://hizal:test@localhost:5432/hizal_test?sslmode=disable
         run: go test ./... -v -race
 
       - name: Vet

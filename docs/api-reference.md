@@ -1,6 +1,6 @@
 # Hizal REST API Reference
 
-Base URL: `https://winnow-api.xferops.dev`
+Base URL: `https://api.hizal.ai`
 
 ## Authentication
 

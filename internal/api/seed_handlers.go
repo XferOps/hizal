@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/XferOps/winnow/internal/billing"
-	"github.com/XferOps/winnow/internal/mcp"
-	"github.com/XferOps/winnow/internal/seed"
+	"github.com/XferOps/hizal/internal/billing"
+	"github.com/XferOps/hizal/internal/mcp"
+	"github.com/XferOps/hizal/internal/seed"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

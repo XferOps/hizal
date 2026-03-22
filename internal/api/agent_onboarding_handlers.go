@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -81,7 +81,7 @@ func (h *AgentOnboardingHandlers) buildResponse(key models.APIKey, org models.Or
 	needsProjectSelection := len(projects) > 1 && selectedProjectIDPtr == nil
 
 	instructions := []string{
-		"Check if the project has context first: search_context(query=\"*\", limit=5). If empty or sparse, use the winnow-seed skill to populate foundational context before doing anything else.",
+		"Check if the project has context first: search_context(query=\"*\", limit=5). If empty or sparse, use the hizal-seed skill to populate foundational context before doing anything else.",
 		"Use Hizal before exploring the codebase directly. Search existing context first, then read the top chunks.",
 		"If context is missing, stale, or incomplete, inspect the codebase and write or update structured chunks with concrete file references and gotchas.",
 		"Before handoff or after a long working session, use compact_context and write back a summary chunk for the next agent.",

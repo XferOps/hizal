@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/XferOps/winnow/internal/mcp"
+	"github.com/XferOps/hizal/internal/mcp"
 	openai "github.com/sashabaranov/go-openai"
 )
 

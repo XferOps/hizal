@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

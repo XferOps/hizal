@@ -10,10 +10,10 @@
 ```bash
 cp .env.example .env
 docker compose up -d
-make migrate-up
-make seed
 make run
 ```
+
+`make run` builds the API, starts it on `http://localhost:8080`, and applies embedded migrations automatically. If you want demo data, run `make seed` after the server is up.
 
 Verify the server:
 
@@ -55,13 +55,16 @@ OPENAI_API_KEY=sk-...
 
 ### Database
 
+The API applies embedded migrations automatically on startup, so `make migrate-up` is optional for local development. Use the migration targets when you want to manage schema changes manually.
+
 The local Postgres runs on port 5434 to avoid conflicts:
 
 ```bash
 # Reset database entirely:
 docker compose down -v
 docker compose up -d
-make migrate-up
+make run
+# in another terminal
 make seed
 ```
 
@@ -106,10 +109,11 @@ If your frontend is running somewhere other than `http://localhost:5173`, update
 ## Troubleshooting
 
 - If you have an old Postgres volume, reset it:
-  ``` changed DB settings andbash
+  ```bash
   docker compose down -v
   docker compose up -d
-  make migrate-up
+  make run
+  # in another terminal
   make seed
   ```
 

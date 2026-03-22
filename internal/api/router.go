@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/XferOps/winnow/internal/embeddings"
-	"github.com/XferOps/winnow/internal/mcp"
-	"github.com/XferOps/winnow/internal/usage"
+	"github.com/XferOps/hizal/internal/embeddings"
+	"github.com/XferOps/hizal/internal/mcp"
+	"github.com/XferOps/hizal/internal/usage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"

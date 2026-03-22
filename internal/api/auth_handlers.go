@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/XferOps/winnow/internal/auth"
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/auth"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )

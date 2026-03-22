@@ -19,7 +19,7 @@ func InviteEmail(orgName, inviteURL string) (html, text string) {
     This link expires in 48 hours. If you didn't expect this invitation, you can safely ignore this email.
   </p>
   <hr style="border:none;border-top:1px solid #eee;margin:32px 0;" />
-  <p style="color:#999;font-size:12px;">Hizal · AI context management · winnow.xferops.dev</p>
+  <p style="color:#999;font-size:12px;">Hizal · AI context management · hizal.ai</p>
 </body>
 </html>`, orgName, inviteURL)
 
@@ -44,7 +44,7 @@ func InviteExistingUserEmail(orgName, loginURL string) (html, text string) {
     </a>
   </p>
   <hr style="border:none;border-top:1px solid #eee;margin:32px 0;" />
-  <p style="color:#999;font-size:12px;">Hizal · AI context management · winnow.xferops.dev</p>
+  <p style="color:#999;font-size:12px;">Hizal · AI context management · hizal.ai</p>
 </body>
 </html>`, orgName, loginURL)
 

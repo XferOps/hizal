@@ -1,4 +1,4 @@
-module github.com/XferOps/winnow
+module github.com/XferOps/hizal
 
 go 1.24.0
 

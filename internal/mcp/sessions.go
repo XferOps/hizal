@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5"
 	"github.com/lib/pq"
 )

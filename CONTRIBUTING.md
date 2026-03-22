@@ -14,18 +14,19 @@ Thanks for your interest in contributing to Hizal! This guide will help you get 
 
 ```bash
 # Clone the repo
-git clone https://github.com/XferOps/winnow.git
+git clone https://github.com/XferOps/hizal.git
 cd hizal
 
 # Copy env template
 cp .env.example .env
-# Edit .env with your database URL and OpenAI API key
-
-# Run migrations
-make migrate
+# Edit .env with your OpenAI API key
 
 # Start the server
-make dev
+docker compose up -d
+make run
+
+# Optional: load demo data in another terminal
+make seed
 
 # Run tests
 make test
@@ -112,8 +113,8 @@ docs/                — Documentation
 
 ## Community
 
-- **Issues:** [github.com/XferOps/winnow/issues](https://github.com/XferOps/winnow/issues)
-- **Discussions:** [github.com/XferOps/winnow/discussions](https://github.com/XferOps/winnow/discussions)
+- **Issues:** [github.com/XferOps/hizal/issues](https://github.com/XferOps/hizal/issues)
+- **Discussions:** [github.com/XferOps/hizal/discussions](https://github.com/XferOps/hizal/discussions)
 
 ## License
 
