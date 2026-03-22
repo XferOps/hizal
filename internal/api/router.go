@@ -193,6 +193,10 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			r.Post("/v1/sessions/{id}/consolidate", sessionH.ConsolidateSession)
 			r.Get("/v1/orgs/{id}/sessions", sessionH.ListSessions)
 			r.Get("/v1/orgs/{id}/session-lifecycles", sessionH.ListSessionLifecycles)
+			r.Post("/v1/orgs/{id}/session-lifecycles", sessionH.CreateSessionLifecycle)
+			r.Get("/v1/session-lifecycles/{id}", sessionH.GetSessionLifecycle)
+			r.Patch("/v1/session-lifecycles/{id}", sessionH.UpdateSessionLifecycle)
+			r.Delete("/v1/session-lifecycles/{id}", sessionH.DeleteSessionLifecycle)
 		}
 	})
 

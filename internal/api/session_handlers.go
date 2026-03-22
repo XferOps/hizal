@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/XferOps/winnow/internal/mcp"
 	"github.com/go-chi/chi/v5"
@@ -388,6 +389,267 @@ func (h *SessionHandlers) ConsolidateSession(w http.ResponseWriter, r *http.Requ
 		"promoted":   promoted,
 		"discarded":  discarded,
 	})
+}
+
+// POST /v1/orgs/:id/session-lifecycles
+func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "id")
+	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var body struct {
+		Name        string                 `json:"name"`
+		Slug        string                 `json:"slug"`
+		Description string                 `json:"description"`
+		IsDefault   bool                   `json:"is_default"`
+		Config      map[string]interface{} `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
+		return
+	}
+
+	for _, c := range body.Slug {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			writeError(w, http.StatusBadRequest, "INVALID_SLUG", "slug must be lowercase alphanumeric with hyphens only")
+			return
+		}
+	}
+
+	if body.Config == nil {
+		body.Config = map[string]interface{}{}
+	}
+
+	ttlHours, ok := body.Config["ttl_hours"].(float64)
+	if !ok || ttlHours <= 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_CONFIG", "config.ttl_hours must be a number > 0")
+		return
+	}
+
+	injectScopes, ok := body.Config["inject_scopes"].([]interface{})
+	if ok {
+		for _, s := range injectScopes {
+			scope, ok := s.(string)
+			if !ok || (scope != "PROJECT" && scope != "ORG" && scope != "AGENT") {
+				writeError(w, http.StatusBadRequest, "INVALID_CONFIG", "inject_scopes must contain only PROJECT, ORG, or AGENT")
+				return
+			}
+		}
+	}
+
+	configJSON, _ := json.Marshal(body.Config)
+
+	var lc struct {
+		ID        string  `json:"id"`
+		OrgID     *string `json:"org_id"`
+		Name      string  `json:"name"`
+		Slug      string  `json:"slug"`
+		IsDefault bool    `json:"is_default"`
+		Config    interface{} `json:"config"`
+		IsGlobal  bool    `json:"is_global"`
+	}
+	err := h.pool.QueryRow(r.Context(), `
+		INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, org_id, name, slug, is_default, config, created_at, updated_at
+	`, orgID, body.Name, body.Slug, body.IsDefault, nullableStr(body.Description), configJSON).Scan(
+		&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configJSON, new(time.Time), new(time.Time),
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a session lifecycle with that slug already exists in this org")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	lc.IsGlobal = lc.OrgID == nil
+	_ = json.Unmarshal(configJSON, &lc.Config)
+
+	writeJSON(w, http.StatusCreated, lc)
+}
+
+// GET /v1/session-lifecycles/:id
+func (h *SessionHandlers) GetSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	lcID := chi.URLParam(r, "id")
+
+	var lc struct {
+		ID        string      `json:"id"`
+		OrgID     *string     `json:"org_id,omitempty"`
+		Name      string      `json:"name"`
+		Slug      string      `json:"slug"`
+		IsDefault bool        `json:"is_default"`
+		Config    interface{} `json:"config"`
+		IsGlobal  bool        `json:"is_global"`
+	}
+	var configRaw []byte
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
+		FROM session_lifecycles WHERE id = $1
+	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(time.Time), new(time.Time))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session lifecycle not found")
+		return
+	}
+
+	if lc.OrgID != nil {
+		if _, err := requireOrgRole(r, h.pool, *lc.OrgID, "owner", "admin", "member", "viewer"); err != nil {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+			return
+		}
+	}
+
+	lc.IsGlobal = lc.OrgID == nil
+	if err := json.Unmarshal(configRaw, &lc.Config); err != nil {
+		lc.Config = string(configRaw)
+	}
+
+	writeJSON(w, http.StatusOK, lc)
+}
+
+// PATCH /v1/session-lifecycles/:id
+func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	lcID := chi.URLParam(r, "id")
+
+	var orgID *string
+	err := h.pool.QueryRow(r.Context(), `SELECT org_id FROM session_lifecycles WHERE id = $1`, lcID).Scan(&orgID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session lifecycle not found")
+		return
+	}
+
+	if orgID == nil {
+		writeError(w, http.StatusForbidden, "GLOBAL_LIFECYCLE", "global built-in lifecycles cannot be modified")
+		return
+	}
+
+	if _, err := requireOrgRole(r, h.pool, *orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var body struct {
+		Name        *string                 `json:"name"`
+		Description *string                 `json:"description"`
+		IsDefault   *bool                   `json:"is_default"`
+		Config      map[string]interface{}   `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+		return
+	}
+
+	if body.Config != nil {
+		if ttlHours, ok := body.Config["ttl_hours"].(float64); ok && ttlHours <= 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_CONFIG", "config.ttl_hours must be a number > 0")
+			return
+		}
+		if injectScopes, ok := body.Config["inject_scopes"].([]interface{}); ok {
+			for _, s := range injectScopes {
+				scope, ok := s.(string)
+				if !ok || (scope != "PROJECT" && scope != "ORG" && scope != "AGENT") {
+					writeError(w, http.StatusBadRequest, "INVALID_CONFIG", "inject_scopes must contain only PROJECT, ORG, or AGENT")
+					return
+				}
+			}
+		}
+	}
+
+	setClauses := []string{}
+	args := []any{}
+	idx := 1
+
+	if body.Name != nil {
+		setClauses = append(setClauses, fmt.Sprintf("name = $%d", idx))
+		args = append(args, *body.Name)
+		idx++
+	}
+	if body.Description != nil {
+		setClauses = append(setClauses, fmt.Sprintf("description = $%d", idx))
+		args = append(args, *body.Description)
+		idx++
+	}
+	if body.IsDefault != nil {
+		setClauses = append(setClauses, fmt.Sprintf("is_default = $%d", idx))
+		args = append(args, *body.IsDefault)
+		idx++
+	}
+	if body.Config != nil {
+		configJSON, _ := json.Marshal(body.Config)
+		setClauses = append(setClauses, fmt.Sprintf("config = $%d", idx))
+		args = append(args, configJSON)
+		idx++
+	}
+
+	if len(setClauses) > 0 {
+		setClauses = append(setClauses, "updated_at = NOW()")
+		args = append(args, lcID)
+		query := fmt.Sprintf("UPDATE session_lifecycles SET %s WHERE id = $%d", joinStrings(setClauses, ", "), idx)
+		_, err = h.pool.Exec(r.Context(), query, args...)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+	}
+
+	var lc struct {
+		ID        string      `json:"id"`
+		OrgID     *string     `json:"org_id,omitempty"`
+		Name      string      `json:"name"`
+		Slug      string      `json:"slug"`
+		IsDefault bool        `json:"is_default"`
+		Config    interface{} `json:"config"`
+		IsGlobal  bool        `json:"is_global"`
+	}
+	var configRaw []byte
+	err = h.pool.QueryRow(r.Context(), `
+		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
+		FROM session_lifecycles WHERE id = $1
+	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(time.Time), new(time.Time))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	lc.IsGlobal = lc.OrgID == nil
+	if err := json.Unmarshal(configRaw, &lc.Config); err != nil {
+		lc.Config = string(configRaw)
+	}
+
+	writeJSON(w, http.StatusOK, lc)
+}
+
+// DELETE /v1/session-lifecycles/:id
+func (h *SessionHandlers) DeleteSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	lcID := chi.URLParam(r, "id")
+
+	var orgID *string
+	err := h.pool.QueryRow(r.Context(), `SELECT org_id FROM session_lifecycles WHERE id = $1`, lcID).Scan(&orgID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "session lifecycle not found")
+		return
+	}
+
+	if orgID == nil {
+		writeError(w, http.StatusForbidden, "GLOBAL_LIFECYCLE", "global built-in lifecycles cannot be deleted")
+		return
+	}
+
+	if _, err := requireOrgRole(r, h.pool, *orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(), `DELETE FROM session_lifecycles WHERE id = $1`, lcID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // GET /v1/orgs/:id/session-lifecycles
