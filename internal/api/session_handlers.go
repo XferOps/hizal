@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/XferOps/winnow/internal/mcp"
 	"github.com/go-chi/chi/v5"
@@ -454,7 +455,7 @@ func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, org_id, name, slug, is_default, config, created_at, updated_at
 	`, orgID, body.Name, body.Slug, body.IsDefault, nullableStr(body.Description), configJSON).Scan(
-		&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configJSON, new(string), new(string),
+		&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configJSON, new(time.Time), new(time.Time),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -488,7 +489,7 @@ func (h *SessionHandlers) GetSessionLifecycle(w http.ResponseWriter, r *http.Req
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
 		FROM session_lifecycles WHERE id = $1
-	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(string), new(string))
+	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(time.Time), new(time.Time))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "session lifecycle not found")
 		return
@@ -559,7 +560,7 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 
 	setClauses := []string{}
 	args := []any{}
-	idx := 2
+	idx := 1
 
 	if body.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", idx))
@@ -607,7 +608,7 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 	err = h.pool.QueryRow(r.Context(), `
 		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
 		FROM session_lifecycles WHERE id = $1
-	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(string), new(string))
+	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(time.Time), new(time.Time))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 		return
