@@ -359,7 +359,7 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 	var sourceTags, sourceSourceLines, sourceGotchas, sourceRelated []byte
 	var sourceProjectID, sourceAgentID, sourceCreatedByAgent *string
 	var sourceInjectAudience []byte
-	var sourceScope, sourceVisibility string
+	var sourceScope, sourceVisibility, sourceOrgName string
 
 	err := h.pool.QueryRow(ctx, `
 		SELECT cc.project_id, cc.scope, cc.agent_id, cc.inject_audience,
@@ -374,6 +374,7 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 		&sourceInjectAudience, &sourceVisibility, &sourceChunkType, &sourceQueryKey,
 		&sourceTitle, &sourceContent, &sourceTags, &sourceSourceLines,
 		&sourceGotchas, &sourceRelated, &sourceCreatedByAgent,
+		&sourceOrgName,
 	)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "chunk not found or not public")
@@ -417,9 +418,6 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 	if body.Scope == "PROJECT" && body.OrgID != nil {
 		destOrgID = *body.OrgID
 	}
-
-	var sourceOrgName string
-	_ = h.pool.QueryRow(ctx, `SELECT name FROM orgs WHERE id = $1`, destOrgID).Scan(&sourceOrgName)
 
 	newID := uuid.New().String()
 	now := time.Now()
