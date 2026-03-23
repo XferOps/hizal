@@ -1615,8 +1615,13 @@ func resolveInjectAudience(raw *json.RawMessage) *models.InjectAudience {
 	if raw == nil || len(*raw) == 0 || string(*raw) == "null" {
 		return nil
 	}
+	// InjectAudience.UnmarshalJSON handles both object and double-encoded
+	// string inputs, so this covers MCP clients that stringify the value.
 	var ia models.InjectAudience
 	if err := json.Unmarshal(*raw, &ia); err != nil {
+		return nil
+	}
+	if len(ia.Rules) == 0 {
 		return nil
 	}
 	return &ia
