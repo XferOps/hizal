@@ -14,7 +14,7 @@ DATABASE_URL_DOCKER = $(subst localhost,host.docker.internal,$(DATABASE_URL))
 
 build:
 	@mkdir -p $(BUILD_DIR)
-	go build -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY) ./cmd/server
+	go build -buildvcs=false -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY) ./cmd/server
 	@echo "✅ Built $(BUILD_DIR)/$(BINARY)"
 
 run: build
@@ -56,8 +56,8 @@ seed:
 	fi
 
 docker-build:
-	docker build -t winnow:latest .
-	@echo "✅ Docker image built: winnow:latest"
+	docker build -t hizal:latest .
+	@echo "✅ Docker image built: hizal:latest"
 
 reset: migrate-down migrate-up seed
 	@echo "Database reset complete"

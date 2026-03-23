@@ -11,11 +11,11 @@ func TestParseRepoURL(t *testing.T) {
 		wantRepo  string
 		wantErr   bool
 	}{
-		{"https://github.com/XferOps/winnow", "XferOps", "winnow", false},
-		{"https://github.com/XferOps/winnow.git", "XferOps", "winnow", false},
-		{"http://github.com/XferOps/winnow", "XferOps", "winnow", false},
-		{"github.com/XferOps/winnow", "XferOps", "winnow", false},
-		{"XferOps/winnow", "XferOps", "winnow", false},
+		{"https://github.com/XferOps/hizal", "XferOps", "hizal", false},
+		{"https://github.com/XferOps/hizal.git", "XferOps", "hizal", false},
+		{"http://github.com/XferOps/hizal", "XferOps", "hizal", false},
+		{"github.com/XferOps/hizal", "XferOps", "hizal", false},
+		{"XferOps/hizal", "XferOps", "hizal", false},
 		{"not-a-repo", "", "", true},
 		{"", "", "", true},
 		{"https://github.com/onlyone", "", "", true},

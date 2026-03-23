@@ -1,25 +1,25 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: winnow-postgres
+    container_name: hizal-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: winnow
+      POSTGRES_DB: hizal
     ports:
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d winnow"]
+      test: ["CMD-SHELL", "pg_isready -U user -d hizal"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   mailpit:
     image: axllent/mailpit:v1.27
-    container_name: winnow-mailpit
+    container_name: hizal-mailpit
     restart: unless-stopped
     ports:
       - "1025:1025"

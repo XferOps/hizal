@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/XferOps/winnow/internal/api"
-	"github.com/XferOps/winnow/internal/db"
-	"github.com/XferOps/winnow/internal/embeddings"
+	"github.com/XferOps/hizal/internal/api"
+	"github.com/XferOps/hizal/internal/db"
+	"github.com/XferOps/hizal/internal/embeddings"
 )
 
 func main() {

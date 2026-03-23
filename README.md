@@ -2,7 +2,7 @@
 
 **Structured memory for AI agents.** Hizal gives your agents persistent, searchable context that survives across sessions — so they stop forgetting everything and start getting better over time.
 
-[![CI](https://github.com/XferOps/winnow/actions/workflows/ci.yml/badge.svg)](https://github.com/XferOps/winnow/actions/workflows/ci.yml)
+[![CI](https://github.com/XferOps/hizal/actions/workflows/ci.yml/badge.svg)](https://github.com/XferOps/hizal/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ---
@@ -134,14 +134,16 @@ Sessions also track metrics — chunks read, chunks written, resume count — so
 
 **Self-host:**
 ```bash
-git clone https://github.com/XferOps/winnow.git
+git clone https://github.com/XferOps/hizal.git
 cd hizal
-cp .env.example .env  # configure DATABASE_URL and OPENAI_API_KEY
-make migrate
-make dev
+cp .env.example .env  # set OPENAI_API_KEY; DATABASE_URL already matches docker-compose.yml
+docker compose up -d
+make run
 ```
 
-**Hosted:** [winnow-api.xferops.dev](https://winnow-api.xferops.dev) — sign up for an API key.
+The API listens on `http://localhost:8080` and runs embedded migrations on startup. If you want local demo data after the server is up, run `make seed` in a second terminal.
+
+**Hosted:** [api.hizal.ai](https://api.hizal.ai) — sign up for an API key.
 
 ### 2. Connect your agent via MCP
 

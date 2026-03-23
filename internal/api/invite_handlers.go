@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/XferOps/winnow/internal/email"
+	"github.com/XferOps/hizal/internal/email"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -43,12 +43,12 @@ func generateToken() (string, error) {
 }
 
 // appBaseURL returns the public base URL for building invite links.
-// Falls back to winnow.xferops.dev.
+// Falls back to hizal.ai.
 func appBaseURL() string {
 	if u := os.Getenv("APP_BASE_URL"); u != "" {
 		return u
 	}
-	return "https://winnow.xferops.dev"
+	return "https://hizal.ai"
 }
 
 // POST /v1/orgs/:id/invites

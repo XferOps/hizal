@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/models"
 )
 
 func TestParseLifecycleConfig_Defaults(t *testing.T) {

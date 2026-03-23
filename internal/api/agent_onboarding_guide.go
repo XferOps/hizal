@@ -126,7 +126,7 @@ JSON MCP client format:
 {
   "mcpServers": {
     "hizal": {
-      "url": "https://winnow-api.xferops.dev/mcp",
+      "url": "https://api.hizal.ai/mcp",
       "headers": {
         "Authorization": "Bearer <agent-api-key>"
       }
@@ -139,7 +139,7 @@ Codex CLI config.toml format:
 
 ` + "```toml" + `
 [mcp_servers.hizal]
-url = "https://winnow-api.xferops.dev/mcp"
+url = "https://api.hizal.ai/mcp"
 http_headers = { Authorization = "Bearer <agent-api-key>" }
 ` + "```" + `
 

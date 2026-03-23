@@ -10,7 +10,7 @@ const (
 	corsAllowHeaders     = "Authorization, Content-Type, X-Project-ID"
 	corsAllowMethods     = "GET, POST, PATCH, DELETE, OPTIONS"
 	corsAllowCredentials = "true"
-	defaultAppBaseURL    = "https://winnow.xferops.dev"
+	defaultAppBaseURL    = "https://hizal.ai"
 )
 
 func corsMiddleware(next http.Handler) http.Handler {

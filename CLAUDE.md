@@ -7,9 +7,9 @@ Hizal is a behavior-driven memory API for AI agents. Go backend with PostgreSQL 
 ## Quick Start
 
 ```bash
-cp .env.example .env   # configure DATABASE_URL + OPENAI_API_KEY
-make migrate
-make dev               # starts on :8080
+cp .env.example .env   # configure OPENAI_API_KEY
+docker compose up -d
+make run               # starts on :8080 and runs embedded migrations
 make test
 ```
 

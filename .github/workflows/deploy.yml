@@ -7,10 +7,10 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPO: 498228255317.dkr.ecr.us-east-1.amazonaws.com/winnow-api
-  ECS_CLUSTER: winnow-cluster
-  ECS_SERVICE: winnow-api
-  TASK_FAMILY: winnow-api
+  ECR_REPO: 498228255317.dkr.ecr.us-east-1.amazonaws.com/hizal-api
+  ECS_CLUSTER: hizal-cluster
+  ECS_SERVICE: hizal-api
+  TASK_FAMILY: hizal-api
 
 jobs:
   build-and-deploy:

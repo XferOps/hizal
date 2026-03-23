@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/XferOps/winnow/internal/mcp"
+	"github.com/XferOps/hizal/internal/mcp"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

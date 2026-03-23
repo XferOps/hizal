@@ -83,7 +83,7 @@ For self-hosters who want to provision agents manually using MCP tools.
 {
   "mcpServers": {
     "hizal": {
-      "url": "https://winnow-api.xferops.dev/mcp",
+      "url": "https://api.hizal.ai/mcp",
       "headers": {
         "Authorization": "Bearer ctx_your-org_YOUR_KEY_HERE"
       }
@@ -95,7 +95,7 @@ For self-hosters who want to provision agents manually using MCP tools.
 **Codex CLI (config.toml):**
 ```toml
 [mcp_servers.hizal]
-url = "https://winnow-api.xferops.dev/mcp"
+url = "https://api.hizal.ai/mcp"
 http_headers = { Authorization = "Bearer ctx_your-org_YOUR_KEY_HERE" }
 ```
 
@@ -186,7 +186,7 @@ Add Hizal session lifecycle to your agent's AGENTS.md or equivalent:
 
 Via REST API:
 ```bash
-curl -X POST https://winnow-api.xferops.dev/v1/keys \
+curl -X POST https://api.hizal.ai/v1/keys \
   -H "Content-Type: application/json" \
   -d '{"org_slug": "your-org", "name": "agent-name"}'
 ```

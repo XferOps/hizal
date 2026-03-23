@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

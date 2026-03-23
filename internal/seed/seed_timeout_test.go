@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/XferOps/winnow/internal/mcp"
+	"github.com/XferOps/hizal/internal/mcp"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -43,7 +43,7 @@ func TestProcessCategoryStopsOnContextTimeout(t *testing.T) {
 		ctx,
 		writer,
 		"project-1",
-		&RepoMeta{Owner: "XferOps", Repo: "winnow"},
+		&RepoMeta{Owner: "XferOps", Repo: "hizal"},
 		"auth",
 		"Authentication mechanisms and middleware",
 		[]string{"auth.go"},

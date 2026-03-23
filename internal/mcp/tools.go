@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/XferOps/winnow/internal/billing"
+	"github.com/XferOps/hizal/internal/billing"
 
-	"github.com/XferOps/winnow/internal/embeddings"
-	"github.com/XferOps/winnow/internal/models"
+	"github.com/XferOps/hizal/internal/embeddings"
+	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 )
