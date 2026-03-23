@@ -167,3 +167,47 @@ func TestReadContextToolSchemaSupportsQueryKey(t *testing.T) {
 		t.Fatalf("read_context required = %v, want no required fields", required)
 	}
 }
+
+func TestAllWriteToolSchemasExposeInjectAudience(t *testing.T) {
+	t.Parallel()
+
+	writeTools := []string{
+		"write_context",
+		"write_identity",
+		"write_memory",
+		"write_knowledge",
+		"write_convention",
+		"write_org_knowledge",
+		"store_principle",
+		"write_chunk",
+	}
+
+	toolMap := make(map[string]toolSchema)
+	for _, tool := range toolList {
+		toolMap[tool.Name] = tool
+	}
+
+	for _, name := range writeTools {
+		t.Run(name, func(t *testing.T) {
+			tool, ok := toolMap[name]
+			if !ok {
+				t.Fatalf("tool %q not found in toolList", name)
+			}
+			properties, ok := tool.InputSchema["properties"].(map[string]interface{})
+			if !ok {
+				t.Fatalf("%s: properties missing or wrong type", name)
+			}
+			iaProp, ok := properties["inject_audience"]
+			if !ok {
+				t.Fatalf("%s: schema missing inject_audience property", name)
+			}
+			propMap, ok := iaProp.(map[string]interface{})
+			if !ok {
+				t.Fatalf("%s: inject_audience property is not a map", name)
+			}
+			if propMap["type"] != "object" {
+				t.Errorf("%s: inject_audience type = %q, want \"object\"", name, propMap["type"])
+			}
+		})
+	}
+}
