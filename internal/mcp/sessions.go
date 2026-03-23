@@ -273,7 +273,11 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		if lifecycleType != nil {
 			lifecycleStr = *lifecycleType
 		}
-		if ia.MatchesSession(agentID, agentType, lifecycleStr, orgID, agentTags, focusTags) {
+		projectIDStr := ""
+		if projectID != nil {
+			projectIDStr = *projectID
+		}
+		if ia.MatchesSession(agentID, agentType, lifecycleStr, orgID, projectIDStr, agentTags, focusTags) {
 			chunks = append(chunks, cand.InjectedChunk)
 		}
 	}
