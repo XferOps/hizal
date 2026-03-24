@@ -55,7 +55,7 @@ Chunk types define and individual chunks inherit or override the `inject_audienc
 
 **The rules follow DNF (disjunctive normal form):** an array of rules where any single rule matching is sufficient (OR), and within each rule, all conditions must be met (AND).
 
-```
+```json
 {
   "inject_audience": {
     "rules": [
@@ -68,16 +68,16 @@ Chunk types define and individual chunks inherit or override the `inject_audienc
 This reads: inject this chunk into sessions where the agent is a **dev type AND working on project proj-abc**, OR where the agent is **specifically agent-xyz**. Two rules, OR'd together. Conditions within each rule are AND'd.
 
 **Available predicates:**
-| Predicate       | Matches on                                     |
-| --------------- | ---------------------------------------------- |
-| all             | Every session. The broadest possible audience. |
-| agent_ids       | Specific agents by ID                          |
-| agent_types     | Agent type (e.g. dev, qa, orchestrator)        |
-| project_ids     | Specific projects by ID                        |
-| org_ids         | Specific orgs by ID                            |
-| agent_tags      | Tags assigned to the agent                     |
-| focus_tags      | Tags registered for the current session focus  |
-| lifecycle_types | Session lifecycle type                         |
+| Predicate         | Matches on                                       |
+| ----------------- | ------------------------------------------------ |
+| `all`             | Every session. The broadest possible audience.   |
+| `agent_ids`       | Specific agents by ID                            |
+| `agent_types`     | Agent type (e.g. `dev`, `qa`, `orchestrator`)    |
+| `project_ids`     | Specific projects by ID                          |
+| `org_ids`         | Specific orgs by ID                              |
+| `agent_tags`      | Tags assigned to the agent                       |
+| `focus_tags`      | Tags registered for the current session focus    |
+| `lifecycle_types` | Session lifecycle type                           |
 
 Injection is deterministic. Retrieval is optional. Chunks with `inject_audience` are pushed into matching sessions automatically — agents don't need to search for them and can't miss them. Chunks without `inject_audience` are still available via `search_context`, but they require the agent to ask.
 
@@ -92,10 +92,10 @@ It's RBAC for AI agents — with the behavioral defaults baked in.
 **Built-in agent types:**
 | Agent Type   | Injected Chunk Types                                 | Injected Scopes     | Search Scopes       | Exclusive Tools                                                                               | Description                                                                                                                                                                                  |
 | ------------ | ---------------------------------------------------- | ------------------- | ------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dev          | Knowledge, Convention, Identity, Principle, Decision | Agent, Project, Org | Agent, Project, Org | —                                                                                             | Coding agents (Claude Code, Cursor, etc.). Gets the full picture — project conventions, decisions, and identity are all in the context window at session start.                              |
-| Orchestrator | Knowledge, Convention, Identity, Principle, Decision | Agent, Project, Org | Agent, Project, Org | store_principle, create_project, list_agents, add_agent_to_project, remove_agent_from_project | Long-running coordination agents (OpenClaw). Same context as dev, plus project management and principle-setting tools that other types can't access. The human interface into the dev cycle. |
-| Admin        | Knowledge, Identity, Principle                       | Agent, Org          | Agent, Org          | store_principle                                                                               | Business and ops agents. No project-scoped injection — they don't see code conventions or project decisions. Org-level context only.                                                         |
-| Research     | Identity                                             | Agent               | Agent, Project, Org | —                                                                                             | Investigation agents. Minimal injection — just their identity. Full search access so they can pull what they need, but they start lean to avoid polluting exploratory work with assumptions. |
+| Dev          | Knowledge, Convention, Identity, Principle, Decision | Agent, Project, Org | Agent, Project, Org | —                                                                                                                       | Coding agents (Claude Code, Cursor, etc.). Gets the full picture — project conventions, decisions, and identity are all in the context window at session start.                              |
+| Orchestrator | Knowledge, Convention, Identity, Principle, Decision | Agent, Project, Org | Agent, Project, Org | `store_principle`, `create_project`, `list_agents`, `add_agent_to_project`, `remove_agent_from_project` | Long-running coordination agents (OpenClaw). Same context as dev, plus project management and principle-setting tools that other types can't access. The human interface into the dev cycle. |
+| Admin        | Knowledge, Identity, Principle                       | Agent, Org          | Agent, Org          | `store_principle`                                                                                                       | Business and ops agents. No project-scoped injection — they don't see code conventions or project decisions. Org-level context only.                                                        |
+| Research     | Identity                                             | Agent               | Agent, Project, Org | —                                                                                                                       | Investigation agents. Minimal injection — just their identity. Full search access so they can pull what they need, but they start lean to avoid polluting exploratory work with assumptions. |
 
 ---
 
@@ -128,8 +128,8 @@ Lifecycles are governance presets that shape how sessions behave. TTL, required 
 | Lifecycle    | TTL | Required Steps | Consolidation Threshold | Inject Scopes       | Description                                                                                      |
 | ------------ | --- | -------------- | ----------------------- | ------------------- | ------------------------------------------------------------------------------------------------ |
 | Default      | 8h  | —              | 5 chunks                | Agent, Project, Org | General-purpose. No required steps, full injection. Use when no other preset fits.               |
-| Dev          | 8h  | register_focus | 3 chunks                | Agent, Project, Org | Coding sessions. Requires explicit task declaration before writing.                              |
-| Admin        | 4h  | register_focus | 2 chunks                | Agent, Org          | Ops and business sessions. Shorter TTL, no project-scoped injection.                             |
+| Dev          | 8h  | `register_focus` | 3 chunks                | Agent, Project, Org | Coding sessions. Requires explicit task declaration before writing.                              |
+| Admin        | 4h  | `register_focus` | 2 chunks                | Agent, Org          | Ops and business sessions. Shorter TTL, no project-scoped injection.                             |
 | Orchestrator | 24h | —              | 10 chunks               | Agent, Project, Org | Long-running coordination. Extended TTL for agents that steer subagents across a full dev cycle. |
 
 `required_steps` enforces workflow discipline — a dev session won't accept writes until the agent declares what it's working on via `register_focus`. `consolidation_threshold` controls how many ephemeral chunks (memory, research, plans) trigger the end-of-session consolidation prompt. **Orgs can define their own lifecycles** that inherit from these or start fresh.
@@ -163,11 +163,14 @@ Add to your MCP config (Claude Code, Cursor, OpenCode, or any MCP client):
 }
 ```
 
-```
+```python
+# Start a session — identity, conventions, principles load automatically
 start_session(lifecycle_slug="dev")
 
+# Search existing knowledge
 search_context(query="how does auth work", project_id="...")
 
+# Write what you learned
 write_knowledge(
   query_key="auth-flow",
   title="JWT verification in middleware",
@@ -175,6 +178,7 @@ write_knowledge(
   project_id="..."
 )
 
+# End session — MEMORY chunks returned for review
 end_session(session_id="...")
 ```
 
@@ -232,6 +236,7 @@ Skills live in `skills/` — each has a `SKILL.md` with full workflow instructio
 | [`docs/04-skills.md`](./docs/04-skills.md) | Agent skill specifications |
 | [`docs/05-workflows.md`](./docs/05-workflows.md) | Session lifecycle and workflows |
 | [`docs/06-agent-onboarding.md`](./docs/06-agent-onboarding.md) | Agent provisioning guide |
+| [`docs/api-reference.md`](./docs/api-reference.md) | REST API reference |
 | [`CONTRIBUTING.md`](./CONTRIBUTING.md) | How to contribute |
 | [`AGENTS.md`](./AGENTS.md) | Complete dev agent session walkthrough |
 
@@ -258,3 +263,5 @@ Hizal is derived from **mycorrhizal** — the symbiotic fungal networks that thr
 These networks aren't passive. Trees actively use them: sharing carbon with saplings that can't reach the light, sending chemical warnings when pests attack, routing nutrients to struggling neighbors. The forest thinks through the network. Individual trees survive because the network remembers.
 
 The parallel to AI agents is deliberate. Each agent session is a tree — capable on its own, but isolated. Hizal is the network underneath: persistent, shared, searchable knowledge that lets agents build on each other's work instead of starting from scratch every time.
+
+The "-hizal" suffix is pulled directly from mycorrhizal. It felt right. Memory that connects things should sound like it.
