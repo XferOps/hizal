@@ -145,7 +145,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 				AVG(usefulness::float) FILTER (WHERE usefulness IS NOT NULL) AS avg_usefulness,
 				AVG(correctness::float) FILTER (WHERE correctness IS NOT NULL) AS avg_correctness,
 				MIN(usefulness) AS min_usefulness,
-				MIN(correctness) AS min_correctness,
+				MIN(correctness) AS min_correctness
 			FROM context_reviews
 			WHERE chunk_id IN (SELECT id FROM org_chunks)
 			GROUP BY chunk_id
