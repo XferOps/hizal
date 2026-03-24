@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/XferOps/hizal/internal/auth"
 	"github.com/XferOps/hizal/internal/mcp"
@@ -11,6 +12,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type ContextReviewItem struct {
+	ID              string    `json:"id"`
+	ChunkID         string    `json:"chunk_id"`
+	Task            *string   `json:"task,omitempty"`
+	Usefulness      *int      `json:"usefulness,omitempty"`
+	UsefulnessNote  *string   `json:"usefulness_note,omitempty"`
+	Correctness     *int      `json:"correctness,omitempty"`
+	CorrectnessNote *string   `json:"correctness_note,omitempty"`
+	Action          *string   `json:"action,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type ContextReviewsResponse struct {
+	Reviews []ContextReviewItem `json:"reviews"`
+	Total   int                 `json:"total"`
+}
 
 type Handlers struct {
 	tools *mcp.Tools
@@ -134,6 +152,40 @@ func (h *Handlers) GetContextVersions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// GET /v1/context/:id/reviews
+func (h *Handlers) GetContextReviews(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	rows, err := h.pool.Query(r.Context(), `
+		SELECT id, chunk_id, task, usefulness, usefulness_note, correctness, correctness_note, action, created_at
+		FROM context_reviews
+		WHERE chunk_id = $1
+		ORDER BY created_at DESC
+	`, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+	defer rows.Close()
+
+	reviews := make([]ContextReviewItem, 0)
+	for rows.Next() {
+		var item ContextReviewItem
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.ChunkID, &item.Task, &item.Usefulness, &item.UsefulnessNote, &item.Correctness, &item.CorrectnessNote, &item.Action, &createdAt); err != nil {
+			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			return
+		}
+		item.CreatedAt = createdAt
+		reviews = append(reviews, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, ContextReviewsResponse{Reviews: reviews, Total: len(reviews)})
 }
 
 // PATCH /v1/context/:id
