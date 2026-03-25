@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/XferOps/hizal/internal/embeddings"
 	"github.com/XferOps/hizal/internal/mcp"
@@ -24,6 +25,9 @@ const (
 
 func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	requireJWTSecretForStartup()
+
+	initLimiters()
+	startLimiterCleanup(5*time.Minute, 10*time.Minute)
 
 	r := chi.NewRouter()
 
@@ -89,12 +93,14 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.Post("/v1/webhooks/stripe", billingH.HandleWebhook)
 
 	// ── Auth routes (no auth required for register/login) ──────────────────
+	// Strict IP-based limits per endpoint: register 5/min, login 10/min, accept-invite 3/hour
+	// These stack on top of the global 60/120 IP limiter applied at r.Group level.
 	r.Route("/v1/auth", func(r chi.Router) {
-		r.With(BodyLimit(authBodyLimitBytes)).Post("/register", authH.Register)
-		r.With(BodyLimit(authBodyLimitBytes)).Post("/login", authH.Login)
+		r.With(StrictIPRateLimit(5.0/60.0, 5), BodyLimit(authBodyLimitBytes)).Post("/register", authH.Register)
+		r.With(StrictIPRateLimit(10.0/60.0, 10), BodyLimit(authBodyLimitBytes)).Post("/login", authH.Login)
 		r.With(JWTAuth()).Get("/me", authH.Me)
 		r.With(JWTAuth(), BodyLimit(authBodyLimitBytes)).Patch("/me", authH.UpdateUser)
-		r.With(BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
+		r.With(StrictIPRateLimit(3.0/3600.0, 3), BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
 	})
 
 	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
@@ -127,8 +133,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Delete("/v1/orgs/{id}/members/{userId}", orgH.RemoveMember)
 		r.Patch("/v1/orgs/{id}/members/{userId}", orgH.UpdateMemberRole)
 
-		// Org invites
-		r.Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
+		// Org invites — user-based strict limit: 10/hour per user (SES cost control)
+		r.With(StrictUserRateLimit(10.0/3600.0, 10)).Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
 		r.Get("/v1/orgs/{id}/invites", inviteH.ListInvites)
 		r.Delete("/v1/orgs/{id}/invites/{inviteId}", inviteH.CancelInvite)
 		r.Post("/v1/orgs/{id}/invites/{inviteId}/resend", inviteH.ResendInvite)
@@ -212,7 +218,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// MCP endpoint (requires API key auth). POST serves JSON-RPC requests directly,
 	// while GET/DELETE advertise stateless Streamable HTTP semantics to remote clients.
-	r.With(BodyLimit(mcpBodyLimitBytes), APIKeyAuth(pool)).Route("/mcp", func(r chi.Router) {
+	// Rate: 120/min per API key (mixed read/write ops; stacks on global IP limit).
+	r.With(BodyLimit(mcpBodyLimitBytes), APIKeyAuth(pool), APIKeyRateLimit(120.0/60.0, 60)).Route("/mcp", func(r chi.Router) {
 		r.Method(http.MethodGet, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if mcpServer == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
@@ -298,7 +305,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			}
 			h.ReadContext(w, r)
 		})
-		r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/", func(w http.ResponseWriter, r *http.Request) {
+		// Write ops: 60/min per API key (embedding cost control)
+		r.With(APIKeyRateLimit(60.0/60.0, 30), BodyLimit(chunkWriteBodyLimitBytes)).Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 				return
@@ -310,7 +318,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			}
 			h.WriteContext(w, r)
 		})
-		r.Get("/search", func(w http.ResponseWriter, r *http.Request) {
+		// Search: 120/min per API key (pgvector query load)
+		r.With(APIKeyRateLimit(120.0/60.0, 60)).Get("/search", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 				return
