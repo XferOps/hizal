@@ -779,6 +779,9 @@ func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateCo
 	args := []interface{}{}
 	argIdx := 1
 
+	// SECURITY: Column names are hardcoded strings, not derived from user input.
+	// User input only controls which fields are present (non-nil) and their values.
+	// Values are passed as parameterized arguments ($1, $2, etc.), preventing SQL injection.
 	if in.Title != nil {
 		setClauses = append(setClauses, fmt.Sprintf("title = $%d", argIdx))
 		args = append(args, *in.Title)
