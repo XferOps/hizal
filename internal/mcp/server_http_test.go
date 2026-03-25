@@ -168,6 +168,34 @@ func TestReadContextToolSchemaSupportsQueryKey(t *testing.T) {
 	}
 }
 
+func TestReadToolsDoNotRequireProjectID(t *testing.T) {
+	t.Parallel()
+
+	// search_context and read_context support AGENT/ORG scope queries where
+	// project_id is optional. Their schemas must NOT list project_id as required.
+	readTools := []string{"search_context", "read_context"}
+
+	toolMap := make(map[string]toolSchema)
+	for _, tool := range toolList {
+		toolMap[tool.Name] = tool
+	}
+
+	for _, name := range readTools {
+		t.Run(name, func(t *testing.T) {
+			tool, ok := toolMap[name]
+			if !ok {
+				t.Fatalf("tool %q not found in toolList", name)
+			}
+			required, _ := tool.InputSchema["required"].([]string)
+			for _, field := range required {
+				if field == "project_id" {
+					t.Errorf("%s: project_id must NOT be in required (AGENT/ORG scope queries don't need it)", name)
+				}
+			}
+		})
+	}
+}
+
 func TestAllWriteToolSchemasExposeInjectAudience(t *testing.T) {
 	t.Parallel()
 

@@ -839,7 +839,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -864,7 +864,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -1065,6 +1065,28 @@ func (s *Server) resolveProjectID(ctx context.Context, r *http.Request, headerPr
 		return "", fmt.Errorf("project_id is required")
 	}
 
+	return s.validateProjectAccess(ctx, r, projectID)
+}
+
+// resolveOptionalProjectID is like resolveProjectID but returns "" when no
+// project_id is provided instead of erroring. Used by read-path tools
+// (search_context, read_context) that support AGENT and ORG scope queries
+// where a project_id is not required.
+func (s *Server) resolveOptionalProjectID(ctx context.Context, r *http.Request, headerProjectID, argProjectID string) (string, error) {
+	projectID := strings.TrimSpace(argProjectID)
+	if projectID == "" {
+		projectID = strings.TrimSpace(headerProjectID)
+	}
+	if projectID == "" {
+		return "", nil
+	}
+
+	return s.validateProjectAccess(ctx, r, projectID)
+}
+
+// validateProjectAccess checks that a non-empty project_id is accessible for
+// the current API key. Shared by resolveProjectID and resolveOptionalProjectID.
+func (s *Server) validateProjectAccess(ctx context.Context, r *http.Request, projectID string) (string, error) {
 	scope, err := s.loadAPIKeyScope(ctx, r)
 	if err != nil {
 		return "", err
