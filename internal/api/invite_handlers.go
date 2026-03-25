@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/email"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -20,8 +21,9 @@ import (
 const inviteTTL = 48 * time.Hour
 
 type InviteHandlers struct {
-	pool  *pgxpool.Pool
-	email *email.Client // nil in local dev (EMAIL_FROM unset)
+	pool        *pgxpool.Pool
+	email       *email.Client
+	auditLogger *audit.AuditLogger
 }
 
 func NewInviteHandlers(ctx context.Context, pool *pgxpool.Pool) (*InviteHandlers, error) {
@@ -29,7 +31,7 @@ func NewInviteHandlers(ctx context.Context, pool *pgxpool.Pool) (*InviteHandlers
 	if err != nil {
 		return nil, fmt.Errorf("invite handlers: init email client: %w", err)
 	}
-	return &InviteHandlers{pool: pool, email: ec}, nil
+	return &InviteHandlers{pool: pool, email: ec, auditLogger: audit.New(pool)}, nil
 }
 
 // generateToken returns a 32-byte cryptographically random hex token.
@@ -321,7 +323,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register the user (reuse auth handler logic inline).
-	authH := NewAuthHandlers(h.pool)
+	authH := NewAuthHandlers(h.pool, h.auditLogger)
 	userID, jwtToken, err := authH.registerUser(r.Context(), inviteEmail, body.Password, body.Name)
 	if err != nil {
 		if writePasswordValidationError(w, err) {
