@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,24 @@ func TestServeHTTPRejectsUnsupportedTransportMethods(t *testing.T) {
 				t.Fatalf("expected Allow header, got %q", got)
 			}
 		})
+	}
+}
+
+func TestServeHTTPRejectsOversizedBody(t *testing.T) {
+	srv := &Server{}
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"payload":"` + strings.Repeat("a", 256) + `"}}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Body = http.MaxBytesReader(rec, req.Body, 64)
+
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status 413, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "request body exceeds the configured size limit") {
+		t.Fatalf("expected payload too large message, got %s", rec.Body.String())
 	}
 }
 

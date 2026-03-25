@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -68,7 +67,11 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "email is required")
+		return
+	}
+	if body.Email == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "email is required")
 		return
 	}
@@ -291,8 +294,8 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Token == "" || body.Name == "" || body.Password == "" {

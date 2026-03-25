@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -138,5 +139,38 @@ func TestSkillAuthAcceptsJWTWithoutPool(t *testing.T) {
 	}
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
+	}
+}
+
+func TestBodyLimitReturnsPayloadTooLargeForChunkWrites(t *testing.T) {
+	h := &Handlers{}
+	payload := fmt.Sprintf(`{"project_id":"project-123","query_key":"q","title":"t","content":"%s"}`, strings.Repeat("a", 256))
+	req := httptest.NewRequest(http.MethodPost, "/v1/context", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler := BodyLimit(64)(http.HandlerFunc(h.WriteContext))
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusRequestEntityTooLarge, rr.Body.String())
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "PAYLOAD_TOO_LARGE") {
+		t.Fatalf("body = %q, want PAYLOAD_TOO_LARGE", body)
+	}
+}
+
+func TestNewRouterAppliesAuthBodyLimit(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/register", strings.NewReader(fmt.Sprintf(`{"email":"person@example.com","password":"secret","name":"%s"}`, strings.Repeat("a", 17000))))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	NewRouter(nil, nil).ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusRequestEntityTooLarge, rr.Body.String())
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "PAYLOAD_TOO_LARGE") {
+		t.Fatalf("body = %q, want PAYLOAD_TOO_LARGE", body)
 	}
 }

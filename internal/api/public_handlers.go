@@ -323,8 +323,8 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var body AddPublicChunkRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "invalid request body")
 		return
 	}
 

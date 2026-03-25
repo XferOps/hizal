@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -30,7 +29,11 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name is required")
+		return
+	}
+	if body.Name == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name is required")
 		return
 	}
