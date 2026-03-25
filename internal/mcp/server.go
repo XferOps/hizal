@@ -493,7 +493,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	version, err := negotiatedProtocolVersionHeader(r.Header.Get("MCP-Protocol-Version"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("protocol version negotiation error: %v", err)
+		http.Error(w, "invalid protocol version", http.StatusBadRequest)
 		return
 	}
 	if version != "" {
@@ -557,7 +558,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result, err := s.dispatchTool(ctx, r, projectID, params.Name, params.Arguments)
 		if err != nil {
 			log.Printf("tool %s error: %v", params.Name, err)
-			resp.Error = &rpcError{Code: -32603, Message: err.Error()}
+			resp.Error = &rpcError{Code: -32603, Message: "internal error"}
 		} else {
 			resp.Result = map[string]interface{}{
 				"content": []map[string]interface{}{
