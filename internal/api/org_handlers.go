@@ -60,7 +60,7 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -74,7 +74,7 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an org with that slug already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -82,12 +82,12 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')
 	`, user.ID, org.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *OrgHandlers) ListOrgs(w http.ResponseWriter, r *http.Request) {
 		ORDER BY o.created_at
 	`, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -183,7 +183,7 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "org not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 		ORDER BY om.created_at
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -280,7 +280,7 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an org with that slug already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -322,7 +322,7 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "no user with that email")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -331,7 +331,7 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
 	`, user.ID, orgID, body.Role)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -357,7 +357,7 @@ func (h *OrgHandlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		DELETE FROM org_memberships WHERE user_id = $1 AND org_id = $2
 	`, targetUserID, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -389,7 +389,7 @@ func (h *OrgHandlers) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		UPDATE org_memberships SET role = $1 WHERE user_id = $2 AND org_id = $3
 	`, body.Role, targetUserID, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 

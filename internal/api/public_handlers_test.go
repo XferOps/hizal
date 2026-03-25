@@ -718,8 +718,8 @@ func TestAddPublicChunk_ToAgent(t *testing.T) {
 	router := NewRouter(pool, nil)
 
 	body := map[string]interface{}{
-		"scope":   "AGENT",
-		"org_id":  destOrgID,
+		"scope":    "AGENT",
+		"org_id":   destOrgID,
 		"agent_id": agentID,
 	}
 	bodyBytes, _ := json.Marshal(body)

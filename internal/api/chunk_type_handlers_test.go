@@ -69,13 +69,13 @@ func TestCreateAndListChunkTypes(t *testing.T) {
 
 		var body struct {
 			ChunkTypes []struct {
-				ID     string  `json:"id"`
-				OrgID  *string `json:"org_id"`
-				Name   string  `json:"name"`
-				Slug   string  `json:"slug"`
-				Scope  string  `json:"default_scope"`
+				ID             string      `json:"id"`
+				OrgID          *string     `json:"org_id"`
+				Name           string      `json:"name"`
+				Slug           string      `json:"slug"`
+				Scope          string      `json:"default_scope"`
 				InjectAudience interface{} `json:"default_inject_audience"`
-				Consol string  `json:"consolidation_behavior"`
+				Consol         string      `json:"consolidation_behavior"`
 			} `json:"chunk_types"`
 		}
 		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
@@ -110,12 +110,12 @@ func TestCreateAndListChunkTypes(t *testing.T) {
 		}
 
 		var created struct {
-			ID      string `json:"id"`
-			OrgID   string `json:"org_id"`
-			Name    string `json:"name"`
-			Slug    string `json:"slug"`
-			Scope   string `json:"default_scope"`
-			Consol  string `json:"consolidation_behavior"`
+			ID     string `json:"id"`
+			OrgID  string `json:"org_id"`
+			Name   string `json:"name"`
+			Slug   string `json:"slug"`
+			Scope  string `json:"default_scope"`
+			Consol string `json:"consolidation_behavior"`
 		}
 		if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
 			t.Fatalf("json.Unmarshal() error = %v", err)

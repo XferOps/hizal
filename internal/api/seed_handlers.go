@@ -50,7 +50,7 @@ func (h *SeedHandlers) SeedProject(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "project not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {

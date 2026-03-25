@@ -62,7 +62,7 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	plaintext, keyHash, err := auth.GenerateAPIKey(org.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -73,7 +73,7 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, user.ID, body.OrgID, keyHash, body.Name, body.ScopeAll, projectIDs).Scan(&key.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (h *KeyHandlers) ListKeys(w http.ResponseWriter, r *http.Request) {
 		ORDER BY ak.created_at DESC
 	`, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -223,7 +223,7 @@ func (h *KeyHandlers) DeleteKey(w http.ResponseWriter, r *http.Request) {
 		DELETE FROM api_keys WHERE id = $1 AND user_id = $2
 	`, keyID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

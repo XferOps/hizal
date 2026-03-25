@@ -12,10 +12,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stripe/stripe-go/v78"
-	checkoutsession "github.com/stripe/stripe-go/v78/checkout/session"
 	portalsession "github.com/stripe/stripe-go/v78/billingportal/session"
-	stripewebhook "github.com/stripe/stripe-go/v78/webhook"
+	checkoutsession "github.com/stripe/stripe-go/v78/checkout/session"
 	sub "github.com/stripe/stripe-go/v78/subscription"
+	stripewebhook "github.com/stripe/stripe-go/v78/webhook"
 )
 
 type BillingHandlers struct {
@@ -46,7 +46,7 @@ func (h *BillingHandlers) CreateCheckout(w http.ResponseWriter, r *http.Request)
 		LIMIT 1
 	`, user.ID).Scan(&orgID, &tier, &stripeCustomerID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *BillingHandlers) CreateCheckout(w http.ResponseWriter, r *http.Request)
 
 	sess, err := checkoutsession.New(params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "STRIPE_ERROR", err.Error())
+		writeInternalError(r, w, "STRIPE_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": sess.URL})
@@ -104,7 +104,7 @@ func (h *BillingHandlers) CreatePortal(w http.ResponseWriter, r *http.Request) {
 		LIMIT 1
 	`, user.ID).Scan(&orgID, &stripeCustomerID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if stripeCustomerID == nil || *stripeCustomerID == "" {
@@ -122,7 +122,7 @@ func (h *BillingHandlers) CreatePortal(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := portalsession.New(params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "STRIPE_ERROR", err.Error())
+		writeInternalError(r, w, "STRIPE_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"url": sess.URL})
@@ -147,7 +147,7 @@ func (h *BillingHandlers) CancelSubscription(w http.ResponseWriter, r *http.Requ
 		LIMIT 1
 	`, user.ID).Scan(&orgID, &tier, &subStatus, &stripeSubID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (h *BillingHandlers) CancelSubscription(w http.ResponseWriter, r *http.Requ
 	}
 	_, err = sub.Update(*stripeSubID, params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "STRIPE_ERROR", err.Error())
+		writeInternalError(r, w, "STRIPE_ERROR", err)
 		return
 	}
 
@@ -180,9 +180,9 @@ func (h *BillingHandlers) CancelSubscription(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status":             "canceled",
-		"message":            "subscription will be cancelled at the end of the billing period",
-		"effective_date":     "end_of_billing_period",
+		"status":         "canceled",
+		"message":        "subscription will be cancelled at the end of the billing period",
+		"effective_date": "end_of_billing_period",
 	})
 }
 
@@ -364,7 +364,7 @@ func (h *BillingHandlers) DowngradeChoice(w http.ResponseWriter, r *http.Request
 		LIMIT 1
 	`, user.ID).Scan(&orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -380,7 +380,7 @@ func (h *BillingHandlers) DowngradeChoice(w http.ResponseWriter, r *http.Request
 			WHERE id = $1 AND org_id = $2
 		`, *body.ProjectID, orgID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"project_id": *body.ProjectID})
@@ -395,7 +395,7 @@ func (h *BillingHandlers) DowngradeChoice(w http.ResponseWriter, r *http.Request
 			RETURNING id
 		`, orgID).Scan(&newProjectID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"project_id": newProjectID})
@@ -420,7 +420,7 @@ func UsageHandler(pool *pgxpool.Pool) http.HandlerFunc {
 			SELECT tier, stripe_subscription_status FROM orgs WHERE id = $1
 		`, orgID).Scan(&tier, &subStatus)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 

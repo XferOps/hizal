@@ -31,7 +31,7 @@ func (h *AgentTypeHandlers) ListAgentTypes(w http.ResponseWriter, r *http.Reques
 		ORDER BY org_id NULLS FIRST, name
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -94,7 +94,7 @@ func (h *AgentTypeHandlers) CreateAgentType(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an agent type with that slug already exists in this org")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	json.Unmarshal(injectFiltersJSON, &t.InjectFilters)
@@ -182,7 +182,7 @@ func (h *AgentTypeHandlers) UpdateAgentType(w http.ResponseWriter, r *http.Reque
 	`, typeID, body.Name, body.Description,
 		nullableBytes(injectFiltersJSON), nullableBytes(searchFiltersJSON))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -195,7 +195,7 @@ func (h *AgentTypeHandlers) UpdateAgentType(w http.ResponseWriter, r *http.Reque
 		&injectFiltersJSON, &searchFiltersJSON, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	json.Unmarshal(injectFiltersJSON, &t.InjectFilters)
@@ -226,7 +226,7 @@ func (h *AgentTypeHandlers) DeleteAgentType(w http.ResponseWriter, r *http.Reque
 
 	_, err = h.pool.Exec(r.Context(), `DELETE FROM agent_types WHERE id = $1`, typeID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

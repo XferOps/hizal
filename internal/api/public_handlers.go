@@ -104,7 +104,7 @@ func (h *PublicHandlers) ListPublicChunks(w http.ResponseWriter, r *http.Request
 		LIMIT $4 OFFSET $5
 	`, chunkTypeParam, tagParam, orgParam, pageSize, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		writeInternalError(r, w, "QUERY_FAILED", err)
 		return
 	}
 	defer rows.Close()
@@ -119,7 +119,7 @@ func (h *PublicHandlers) ListPublicChunks(w http.ResponseWriter, r *http.Request
 			&chunk.Tags, &chunk.OrgName, &chunk.OrgSlug,
 			&chunk.CreatedAt, &chunk.UpdatedAt, &totalCount,
 		); err != nil {
-			writeError(w, http.StatusInternalServerError, "SCAN_FAILED", err.Error())
+			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
 		json.Unmarshal(contentBytes, &chunk.Content)
@@ -267,7 +267,7 @@ func (h *PublicHandlers) SearchPublicChunks(w http.ResponseWriter, r *http.Reque
 			LIMIT $3 OFFSET $4
 		`, likePattern, chunkTypeParam, pageSize, offset)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+			writeInternalError(r, w, "QUERY_FAILED", err)
 			return
 		}
 		defer rows.Close()
@@ -459,7 +459,7 @@ func (h *PublicHandlers) AddPublicChunk(w http.ResponseWriter, r *http.Request) 
 		now,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 

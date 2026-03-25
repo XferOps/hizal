@@ -136,7 +136,7 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "no user with that email")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -157,7 +157,7 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 		ON CONFLICT (user_id, project_id) DO UPDATE SET role = EXCLUDED.role
 	`, membershipID, user.ID, projectID, body.Role)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -186,7 +186,7 @@ func (h *ProjectMembershipHandlers) ListMembers(w http.ResponseWriter, r *http.R
 		ORDER BY pm.created_at
 	`, projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -245,7 +245,7 @@ func (h *ProjectMembershipHandlers) UpdateMemberRole(w http.ResponseWriter, r *h
 		body.Role, targetUserID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -275,7 +275,7 @@ func (h *ProjectMembershipHandlers) RemoveMember(w http.ResponseWriter, r *http.
 		targetUserID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

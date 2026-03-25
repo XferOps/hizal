@@ -241,7 +241,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 		END ASC, nr.last_activity ASC
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -265,7 +265,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			signalsJSON                           [][]byte
 		)
 		if err := rows.Scan(&id, &queryKey, &title, &scope, &chunkType, &projectID, &projectName, &lastReviewAt, &lastActivity, &reviewCount, &avgUsefulness, &avgCorrectness, &minUsefulness, &minCorrectness, &reasonCategory, &latestAction, &latestNote, &latestReviewCreatedAt, &signalsJSON); err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 
@@ -336,7 +336,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
