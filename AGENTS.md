@@ -53,59 +53,72 @@ get_active_session()
 
 ## 2. Read the Task Spec
 
-Specs are Hizal chunks with `chunk_type=SPEC`. Find your assigned work:
+**In our setup**, specs come from Forge via the forge MCP:
 
 ```
-search_context(query="spec status TODO", project_id="<project-id>")
-search_context(query="spec BUG", project_id="<project-id>")
+forge_get_task(taskId="<ticket-id>")
 ```
 
-Pick the highest-priority unblocked spec. Read it fully:
-
-```
-read_context(query_key="spec-wnw-XX-short-name", project_id="<project-id>")
-```
-
-The spec is your source of truth. Extract key concepts and decisions before moving to step 3.
-
-### Spec Chunk Format
-
-```
-query_key: spec-wnw-XX-short-description
-chunk_type: SPEC
-title: "WNW-XX: Human-readable title"
-
-**Priority:** CRITICAL | HIGH | MEDIUM | LOW
-**Status:** TODO | IN_PROGRESS | CODE_REVIEW | DONE | BLOCKED
-**Type:** BUG | FEATURE | CHORE
-**Repo:** hizal | hizal-ui
-**Depends on:** spec-wnw-YY (or "none")
-**Assigned:** <agent-name> | unassigned
-**PR:** <url when created>
-
-## Description
-What needs to be built or fixed.
-
-## Acceptance Criteria
-- [ ] Criterion 1
-- [ ] Criterion 2
-
-## Gotchas
-(Enriched after failed attempts or discoveries)
-```
+The ticket description is the spec. Read it fully before moving to step 3.
 
 ---
 
 ## 3. Search Hizal for Existing Context
 
-Now that you know what you're building, search for prior decisions and conventions:
+Now that you know what you're building, search Hizal broadly first, then narrow if needed.
+
+`search_context` can search across all accessible scopes by default:
+
+- `AGENT` — your personal memory and prior investigations
+- `PROJECT` — Back Office knowledge and conventions
+- `ORG` — org-wide standards and principles
+
+Start with 2-3 broad searches using different phrasings:
 
 ```
-search_context(query="<key concept from the spec>", project_id="<project-id>")
+search_context(query="<key concept from the spec>")
+search_context(query="<ticket id or feature name>")
+search_context(query="<related subsystem or endpoint>")
+```
+
+Then narrow when you need a specific layer of context:
+
+```
+# Project-specific knowledge and conventions
+search_context(
+  query="<key concept from the spec>",
+  project_id="557d9142-63cf-4eb2-b190-75a7d9da7318",
+  scope="PROJECT"
+)
+
+# Prior agent memory / investigation notes
+search_context(
+  query="<key concept from the spec>",
+  scope="AGENT",
+  chunk_type="MEMORY"
+)
+
+# Org-wide principles and standards
+search_context(
+  query="<key concept from the spec>",
+  scope="ORG"
+)
+```
+
+If you know the exact saved item you're looking for, search by `query_key`.
+
+Examples:
+
+```
+search_context(query="<key concept from the spec>", project_id="557d9142-63cf-4eb2-b190-75a7d9da7318")
+search_context(query_key="<exact-query-key>", project_id="557d9142-63cf-4eb2-b190-75a7d9da7318")
 ```
 
 Run 2-3 searches with different phrasings. Read the returned chunks — they contain
 architecture decisions, conventions, and prior work that must inform your implementation.
+
+If an `AGENT` memory chunk turns out to be broadly useful for the team, promote it later by
+writing it back as `write_knowledge` or `write_convention`.
 
 Don't rediscover what the team already decided.
 
