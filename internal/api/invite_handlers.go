@@ -321,6 +321,9 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	authH := NewAuthHandlers(h.pool)
 	userID, jwtToken, err := authH.registerUser(r.Context(), inviteEmail, body.Password, body.Name)
 	if err != nil {
+		if writePasswordValidationError(w, err) {
+			return
+		}
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "an account with this email already exists")
 			return
