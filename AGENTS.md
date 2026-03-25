@@ -87,7 +87,7 @@ Then narrow when you need a specific layer of context:
 # Project-specific knowledge and conventions
 search_context(
   query="<key concept from the spec>",
-  project_id="557d9142-63cf-4eb2-b190-75a7d9da7318",
+  project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a",
   scope="PROJECT"
 )
 
@@ -110,8 +110,8 @@ If you know the exact saved item you're looking for, search by `query_key`.
 Examples:
 
 ```
-search_context(query="<key concept from the spec>", project_id="557d9142-63cf-4eb2-b190-75a7d9da7318")
-search_context(query_key="<exact-query-key>", project_id="557d9142-63cf-4eb2-b190-75a7d9da7318")
+search_context(query="<key concept from the spec>", project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a")
+search_context(query_key="<exact-query-key>", project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a")
 ```
 
 Run 2-3 searches with different phrasings. Read the returned chunks — they contain
