@@ -259,7 +259,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 		snapshots, err := usage.Query(r.Context(), pool, claims.OrgID, filterProject, days)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+			writeInternalError(r, w, "QUERY_FAILED", err)
 			return
 		}
 		if snapshots == nil {

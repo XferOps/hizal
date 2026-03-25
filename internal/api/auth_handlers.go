@@ -70,14 +70,14 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "HASH_FAILED", err.Error())
+		writeInternalError(r, w, "HASH_FAILED", err)
 		return
 	}
 
 	// Everything in one transaction — if anything fails, nothing is created.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -94,7 +94,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "a user with that email already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -114,11 +114,11 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 				INSERT INTO orgs (name, slug, is_personal) VALUES ($1, $2, TRUE) RETURNING id, slug
 			`, orgName, orgSlug).Scan(&orgID, &finalOrgSlug)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+				writeInternalError(r, w, "DB_ERROR", err)
 				return
 			}
 		} else {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 	}
@@ -128,7 +128,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')
 	`, user.ID, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -140,14 +140,14 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, orgID).Scan(&projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// 5. Generate default API key scoped to the project
 	plaintext, keyHash, err := auth.GenerateAPIKey(finalOrgSlug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -158,19 +158,19 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, user.ID, orgID, keyHash, projectID).Scan(&keyID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// Commit the transaction
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
+		writeInternalError(r, w, "JWT_FAILED", err)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 
 	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
+		writeInternalError(r, w, "JWT_FAILED", err)
 		return
 	}
 
@@ -298,7 +298,7 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, email, name
 	`, *body.Name, user.ID).Scan(&updatedUser.ID, &updatedUser.Email, &updatedUser.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -333,7 +333,7 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		ORDER BY o.created_at
 	`, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -391,25 +391,4 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		"tier":                 personalTier,
 		"locked_project_count": lockedProjectCount,
 	})
-}
-
-// isUniqueViolation checks for Postgres unique constraint error (code 23505).
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return containsStr(err.Error(), "23505") || containsStr(err.Error(), "unique")
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && stringContains(s, substr))
-}
-
-func stringContains(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

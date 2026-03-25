@@ -77,7 +77,7 @@ func (h *Handlers) WriteContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.tools.WriteContext(r.Context(), projectID(r), in)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "WRITE_FAILED", err.Error())
+		writeInternalError(r, w, "WRITE_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -101,7 +101,7 @@ func (h *Handlers) SearchContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.tools.SearchContext(r.Context(), projectID(r), in, models.AgentTypeFilterConfig{})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "SEARCH_FAILED", err.Error())
+		writeInternalError(r, w, "SEARCH_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -122,7 +122,7 @@ func (h *Handlers) CompactContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.tools.CompactContext(r.Context(), projectID(r), in, models.AgentTypeFilterConfig{})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "COMPACT_FAILED", err.Error())
+		writeInternalError(r, w, "COMPACT_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -164,7 +164,7 @@ func (h *Handlers) GetContextReviews(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC
 	`, id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -174,14 +174,14 @@ func (h *Handlers) GetContextReviews(w http.ResponseWriter, r *http.Request) {
 		var item ContextReviewItem
 		var createdAt time.Time
 		if err := rows.Scan(&item.ID, &item.ChunkID, &item.Task, &item.Usefulness, &item.UsefulnessNote, &item.Correctness, &item.CorrectnessNote, &item.Action, &createdAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 		item.CreatedAt = createdAt
 		reviews = append(reviews, item)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *Handlers) UpdateContext(w http.ResponseWriter, r *http.Request) {
 	in.ID = id
 	result, err := h.tools.UpdateContext(r.Context(), projectID(r), in)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "UPDATE_FAILED", err.Error())
+		writeInternalError(r, w, "UPDATE_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -210,7 +210,7 @@ func (h *Handlers) DeleteContext(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	result, err := h.tools.DeleteContext(r.Context(), projectID(r), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DELETE_FAILED", err.Error())
+		writeInternalError(r, w, "DELETE_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -227,7 +227,7 @@ func (h *Handlers) ReviewContext(w http.ResponseWriter, r *http.Request) {
 	in.ChunkID = chunkID
 	result, err := h.tools.ReviewContext(r.Context(), projectID(r), in)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "REVIEW_FAILED", err.Error())
+		writeInternalError(r, w, "REVIEW_FAILED", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -249,7 +249,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	plaintext, keyHash, err := auth.GenerateAPIKey(body.OrgSlug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -263,7 +263,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, name, slug
 	`, body.OrgSlug, body.OrgSlug).Scan(&org.ID, &org.Name, &org.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -276,7 +276,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, email, name
 	`, botEmail, "Agent Bot ("+body.OrgSlug+")").Scan(&user.ID, &user.Email, &user.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -294,7 +294,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, org_id, name, slug
 	`, org.ID).Scan(&project.ID, &project.OrgID, &project.Name, &project.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -306,7 +306,7 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, "USER", user.ID, org.ID, keyHash, body.KeyName).Scan(&key.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 

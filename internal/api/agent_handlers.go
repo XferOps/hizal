@@ -151,7 +151,7 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an agent with that slug already exists in this org")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -190,7 +190,7 @@ func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -366,7 +366,7 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	`, agentID, body.Name, body.Description, body.Status,
 		body.Platform, body.InstanceID, body.IPAddress, tagsVal)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": agentID, "updated": true})
@@ -382,7 +382,7 @@ func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.pool.Exec(r.Context(), `DELETE FROM agents WHERE id = $1`, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -437,7 +437,7 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 		agentID, body.ProjectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -460,7 +460,7 @@ func (h *AgentHandlers) RemoveProject(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM agent_projects WHERE agent_id = $1 AND project_id = $2`, agentID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

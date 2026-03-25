@@ -83,7 +83,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	// Fetch org name for email copy.
 	var orgName string
 	if err := h.pool.QueryRow(r.Context(), `SELECT name FROM orgs WHERE id = $1`, orgID).Scan(&orgName); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 			ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
 		`, existingUserID, orgID, body.Role)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 
@@ -121,14 +121,14 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// User doesn't exist — create invite record.
 	token, err := generateToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "TOKEN_FAILED", err.Error())
+		writeInternalError(r, w, "TOKEN_FAILED", err)
 		return
 	}
 
@@ -139,7 +139,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, inviteID, orgID, caller.ID, body.Email, body.Role, token, expiresAt)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -177,7 +177,7 @@ func (h *InviteHandlers) ListInvites(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -221,7 +221,7 @@ func (h *InviteHandlers) CancelInvite(w http.ResponseWriter, r *http.Request) {
 		inviteID, orgID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -253,7 +253,7 @@ func (h *InviteHandlers) ResendInvite(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "invite not found or already accepted")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -271,7 +271,7 @@ func (h *InviteHandlers) ResendInvite(w http.ResponseWriter, r *http.Request) {
 		HTML:    html,
 		Text:    text,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "EMAIL_FAILED", err.Error())
+		writeInternalError(r, w, "EMAIL_FAILED", err)
 		return
 	}
 
@@ -313,7 +313,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "invite token is invalid or has expired")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -325,7 +325,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "an account with this email already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "REGISTER_FAILED", err.Error())
+		writeInternalError(r, w, "REGISTER_FAILED", err)
 		return
 	}
 
@@ -335,7 +335,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
 	`, userID, orgID, role)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 

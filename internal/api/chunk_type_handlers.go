@@ -33,7 +33,7 @@ func (h *ChunkTypeHandlers) ListChunkTypes(w http.ResponseWriter, r *http.Reques
 		ORDER BY org_id NULLS FIRST, name
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -64,12 +64,12 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name                    string          `json:"name"`
-		Slug                    string          `json:"slug"`
-		Description             string          `json:"description"`
-		DefaultScope            string          `json:"default_scope"`
-		DefaultInjectAudience   *json.RawMessage `json:"default_inject_audience"`
-		ConsolidationBehavior   string          `json:"consolidation_behavior"`
+		Name                  string           `json:"name"`
+		Slug                  string           `json:"slug"`
+		Description           string           `json:"description"`
+		DefaultScope          string           `json:"default_scope"`
+		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
+		ConsolidationBehavior string           `json:"consolidation_behavior"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
@@ -98,7 +98,7 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a chunk type with that slug already exists in this org")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -153,11 +153,11 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name                    *string          `json:"name"`
-		Description             *string          `json:"description"`
-		DefaultScope            *string          `json:"default_scope"`
-		DefaultInjectAudience   *json.RawMessage `json:"default_inject_audience"`
-		ConsolidationBehavior   *string          `json:"consolidation_behavior"`
+		Name                  *string          `json:"name"`
+		Description           *string          `json:"description"`
+		DefaultScope          *string          `json:"default_scope"`
+		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
+		ConsolidationBehavior *string          `json:"consolidation_behavior"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
@@ -200,7 +200,7 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 		query := fmt.Sprintf("UPDATE chunk_types SET %s WHERE id = $%d", joinStrings(setClauses, ", "), idx)
 		_, err = h.pool.Exec(r.Context(), query, args...)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 	}
@@ -215,7 +215,7 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 		&t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *ChunkTypeHandlers) DeleteChunkType(w http.ResponseWriter, r *http.Reque
 
 	_, err = h.pool.Exec(r.Context(), `DELETE FROM chunk_types WHERE id = $1`, typeID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
