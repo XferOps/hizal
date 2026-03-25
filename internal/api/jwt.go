@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -21,6 +23,28 @@ type JWTClaims struct {
 type JWTUser struct {
 	ID    string
 	Email string
+}
+
+var jwtStartupFatalf = log.Fatalf
+
+func jwtSecretValidationError() error {
+	env := os.Getenv("ENV")
+	if env == "development" {
+		return nil
+	}
+	if os.Getenv("JWT_SECRET") != "" {
+		return nil
+	}
+	if env == "" {
+		env = "unset"
+	}
+	return fmt.Errorf("JWT_SECRET must be set when ENV is %q", env)
+}
+
+func requireJWTSecretForStartup() {
+	if err := jwtSecretValidationError(); err != nil {
+		jwtStartupFatalf("invalid JWT configuration: %v", err)
+	}
 }
 
 func jwtSecret() []byte {
