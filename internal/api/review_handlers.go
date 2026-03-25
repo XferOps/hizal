@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/XferOps/hizal/internal/mcp"
@@ -19,19 +20,34 @@ func NewReviewHandlers(pool *pgxpool.Pool) *ReviewHandlers {
 }
 
 type ReviewInboxItem struct {
-	ID              string        `json:"id"`
-	QueryKey        string        `json:"query_key"`
-	Title           string        `json:"title"`
-	Scope           string        `json:"scope"`
-	ChunkType       string        `json:"chunk_type"`
-	ProjectID       *string       `json:"project_id"`
-	ProjectName     *string       `json:"project_name"`
-	LastReviewAt    *time.Time    `json:"last_review_at"`
-	DaysSinceReview int           `json:"days_since_review"`
-	StaleSignals    []StaleSignal `json:"stale_signals"`
-	MinUsefulness   *int          `json:"min_usefulness"`
-	MinCorrectness  *int          `json:"min_correctness"`
-	Freshness       float64       `json:"freshness"`
+	ID                string            `json:"id"`
+	QueryKey          string            `json:"query_key"`
+	Title             string            `json:"title"`
+	Scope             string            `json:"scope"`
+	ChunkType         string            `json:"chunk_type"`
+	ProjectID         *string           `json:"project_id"`
+	ProjectName       *string           `json:"project_name"`
+	LastReviewAt      *time.Time        `json:"last_review_at"`
+	LastActivityAt    time.Time         `json:"last_activity_at"`
+	DaysSinceReview   *int              `json:"days_since_review,omitempty"`
+	DaysSinceActivity int               `json:"days_since_activity"`
+	StaleSignals      []StaleSignal     `json:"stale_signals"`
+	MinUsefulness     *int              `json:"min_usefulness"`
+	MinCorrectness    *int              `json:"min_correctness"`
+	AvgUsefulness     *float64          `json:"avg_usefulness,omitempty"`
+	AvgCorrectness    *float64          `json:"avg_correctness,omitempty"`
+	ReviewCount       int               `json:"review_count"`
+	Freshness         float64           `json:"freshness"`
+	Reason            ReviewInboxReason `json:"reason"`
+}
+
+type ReviewInboxReason struct {
+	Category       string     `json:"category"`
+	SignalStrength string     `json:"signal_strength"`
+	Summary        string     `json:"summary"`
+	Action         string     `json:"action,omitempty"`
+	Note           string     `json:"note,omitempty"`
+	ReviewedAt     *time.Time `json:"reviewed_at,omitempty"`
 }
 
 type StaleSignal struct {
@@ -40,8 +56,63 @@ type StaleSignal struct {
 }
 
 type ReviewInboxResponse struct {
-	Chunks []ReviewInboxItem `json:"chunks"`
-	Total  int               `json:"total"`
+	Chunks          []ReviewInboxItem `json:"chunks"`
+	Total           int               `json:"total"`
+	ActionableTotal int               `json:"actionable_total"`
+}
+
+func signalStrengthForCategory(category string) string {
+	switch category {
+	case "agent_flag":
+		return "high"
+	case "low_score":
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+func summaryForReason(category, action, note string, avgUsefulness, avgCorrectness *float64, reviewCount, daysSinceActivity int) string {
+	switch category {
+	case "agent_flag":
+		summary := "Flagged for review"
+		if action != "" {
+			summary = "Flagged as " + action
+		}
+		if note != "" {
+			return summary + ": " + note
+		}
+		return summary
+	case "low_score":
+		parts := "Low review scores"
+		if avgUsefulness != nil && avgCorrectness != nil {
+			parts = "Low review scores (usefulness " + formatScore(*avgUsefulness) + "/5, correctness " + formatScore(*avgCorrectness) + "/5)"
+		}
+		if reviewCount > 0 {
+			return parts + " across " + pluralizeReviews(reviewCount)
+		}
+		return parts
+	default:
+		return "No activity in " + pluralizeDays(daysSinceActivity)
+	}
+}
+
+func formatScore(score float64) string {
+	return strconv.FormatFloat(score, 'f', 1, 64)
+}
+
+func pluralizeReviews(n int) string {
+	if n == 1 {
+		return "1 review"
+	}
+	return strconv.Itoa(n) + " reviews"
+}
+
+func pluralizeDays(n int) string {
+	if n == 1 {
+		return "1 day"
+	}
+	return strconv.Itoa(n) + " days"
 }
 
 func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
@@ -66,17 +137,28 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			FROM context_chunks
 			WHERE org_id = $1 OR project_id IN (SELECT id FROM org_projects)
 		),
-		review_stats AS (
+			review_stats AS (
 			SELECT
 				chunk_id,
 				MAX(created_at) AS last_review_at,
+				COUNT(*) AS review_count,
+				AVG(usefulness::float) FILTER (WHERE usefulness IS NOT NULL) AS avg_usefulness,
+				AVG(correctness::float) FILTER (WHERE correctness IS NOT NULL) AS avg_correctness,
 				MIN(usefulness) AS min_usefulness,
-				MIN(correctness) AS min_correctness,
-				BOOL_OR(action IN ('needs_update', 'outdated', 'incorrect')) AS has_explicit_flag,
-				BOOL_OR(usefulness < 3 OR correctness < 3) AS has_low_score
+				MIN(correctness) AS min_correctness
 			FROM context_reviews
 			WHERE chunk_id IN (SELECT id FROM org_chunks)
 			GROUP BY chunk_id
+		),
+		latest_review AS (
+			SELECT DISTINCT ON (chunk_id)
+				chunk_id,
+				action,
+				COALESCE(NULLIF(correctness_note, ''), NULLIF(usefulness_note, ''), NULLIF(task, '')) AS note,
+				created_at
+			FROM context_reviews
+			WHERE chunk_id IN (SELECT id FROM org_chunks)
+			ORDER BY chunk_id, created_at DESC
 		),
 		needs_review AS (
 			SELECT
@@ -86,25 +168,30 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 				oc.scope,
 				oc.chunk_type,
 				oc.project_id,
-				oc.updated_at AS chunk_updated_at,
+				rs.last_review_at,
 				COALESCE(rs.last_review_at, oc.updated_at) AS last_activity,
+				COALESCE(rs.review_count, 0) AS review_count,
+				rs.avg_usefulness,
+				rs.avg_correctness,
 				rs.min_usefulness,
 				rs.min_correctness,
-				rs.has_explicit_flag,
-				rs.has_low_score,
 				CASE
-					WHEN rs.has_explicit_flag OR rs.has_low_score THEN 0
-					WHEN rs.last_review_at IS NULL THEN 1
-					WHEN rs.last_review_at < NOW() - INTERVAL '30 days' THEN 2
-					ELSE 3
-				END AS priority_bucket
+					WHEN lr.action IN ('needs_update', 'outdated', 'incorrect') THEN 'agent_flag'
+					WHEN COALESCE(rs.avg_usefulness, 5) < 3 OR COALESCE(rs.avg_correctness, 5) < 3 THEN 'low_score'
+					WHEN COALESCE(rs.last_review_at, oc.updated_at) < NOW() - INTERVAL '60 days' THEN 'aging'
+					ELSE NULL
+				END AS reason_category,
+				lr.action AS latest_action,
+				lr.note AS latest_note,
+				lr.created_at AS latest_review_created_at
 			FROM org_chunks oc
 			LEFT JOIN review_stats rs ON rs.chunk_id = oc.id
+			LEFT JOIN latest_review lr ON lr.chunk_id = oc.id
 			WHERE
-				rs.has_explicit_flag = TRUE
-				OR rs.has_low_score = TRUE
-				OR rs.last_review_at IS NULL
-				OR rs.last_review_at < NOW() - INTERVAL '30 days'
+				lr.action IN ('needs_update', 'outdated', 'incorrect')
+				OR COALESCE(rs.avg_usefulness, 5) < 3
+				OR COALESCE(rs.avg_correctness, 5) < 3
+				OR COALESCE(rs.last_review_at, oc.updated_at) < NOW() - INTERVAL '60 days'
 		)
 		SELECT
 			nr.id,
@@ -114,13 +201,23 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			nr.chunk_type,
 			nr.project_id,
 			p.name AS project_name,
+			nr.last_review_at,
 			nr.last_activity,
+			nr.review_count,
+			nr.avg_usefulness,
+			nr.avg_correctness,
 			nr.min_usefulness,
 			nr.min_correctness,
-			nr.priority_bucket,
+			nr.reason_category,
+			nr.latest_action,
+			nr.latest_note,
+			nr.latest_review_created_at,
 			ARRAY(
 				SELECT jsonb_build_object(
-					'action', cr.action,
+					'action', CASE
+						WHEN cr.action IN ('needs_update', 'outdated', 'incorrect') THEN cr.action
+						ELSE 'low_score'
+					END,
 					'note', COALESCE(
 						NULLIF(cr.usefulness_note, ''),
 						NULLIF(cr.correctness_note, '')
@@ -137,7 +234,11 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			) AS stale_signals_json
 		FROM needs_review nr
 		LEFT JOIN projects p ON p.id = nr.project_id
-		ORDER BY nr.priority_bucket ASC, nr.last_activity ASC
+		ORDER BY CASE nr.reason_category
+			WHEN 'agent_flag' THEN 0
+			WHEN 'low_score' THEN 1
+			ELSE 2
+		END ASC, nr.last_activity ASC
 	`, orgID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
@@ -150,14 +251,20 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var (
 			id, queryKey, title, scope, chunkType string
-			projectID                              *string
-			projectName                            *string
-			lastActivity                           time.Time
-			minUsefulness, minCorrectness          *int
-			priorityBucket                         int
-			signalsJSON                            [][]byte
+			projectID                             *string
+			projectName                           *string
+			lastReviewAt                          *time.Time
+			lastActivity                          time.Time
+			reviewCount                           int
+			avgUsefulness, avgCorrectness         *float64
+			minUsefulness, minCorrectness         *int
+			reasonCategory                        string
+			latestAction                          *string
+			latestNote                            *string
+			latestReviewCreatedAt                 *time.Time
+			signalsJSON                           [][]byte
 		)
-		if err := rows.Scan(&id, &queryKey, &title, &scope, &chunkType, &projectID, &projectName, &lastActivity, &minUsefulness, &minCorrectness, &priorityBucket, &signalsJSON); err != nil {
+		if err := rows.Scan(&id, &queryKey, &title, &scope, &chunkType, &projectID, &projectName, &lastReviewAt, &lastActivity, &reviewCount, &avgUsefulness, &avgCorrectness, &minUsefulness, &minCorrectness, &reasonCategory, &latestAction, &latestNote, &latestReviewCreatedAt, &signalsJSON); err != nil {
 			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
 			return
 		}
@@ -176,10 +283,15 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		daysSince := int(time.Since(lastActivity).Hours() / 24)
+		daysSinceActivity := int(time.Since(lastActivity).Hours() / 24)
+		var daysSinceReview *int
+		if lastReviewAt != nil {
+			d := int(time.Since(*lastReviewAt).Hours() / 24)
+			daysSinceReview = &d
+		}
 		freshness := 1.0
-		if daysSince > int(mcp.FreshnessDecayStartDays) {
-			decay := float64(daysSince-int(mcp.FreshnessDecayStartDays)) / (mcp.FreshnessDecayFullDays - mcp.FreshnessDecayStartDays)
+		if daysSinceActivity > int(mcp.FreshnessDecayStartDays) {
+			decay := float64(daysSinceActivity-int(mcp.FreshnessDecayStartDays)) / (mcp.FreshnessDecayFullDays - mcp.FreshnessDecayStartDays)
 			if decay >= 1.0 {
 				freshness = mcp.FreshnessMin
 			} else {
@@ -187,20 +299,39 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		reason := ReviewInboxReason{
+			Category:       reasonCategory,
+			SignalStrength: signalStrengthForCategory(reasonCategory),
+			ReviewedAt:     latestReviewCreatedAt,
+		}
+		if latestAction != nil {
+			reason.Action = *latestAction
+		}
+		if latestNote != nil {
+			reason.Note = *latestNote
+		}
+		reason.Summary = summaryForReason(reasonCategory, reason.Action, reason.Note, avgUsefulness, avgCorrectness, reviewCount, daysSinceActivity)
+
 		items = append(items, ReviewInboxItem{
-			ID:              id,
-			QueryKey:        queryKey,
-			Title:           title,
-			Scope:           scope,
-			ChunkType:       chunkType,
-			ProjectID:       projectID,
-			ProjectName:     projectName,
-			LastReviewAt:    &lastActivity,
-			DaysSinceReview: daysSince,
-			StaleSignals:    signals,
-			MinUsefulness:   minUsefulness,
-			MinCorrectness:  minCorrectness,
-			Freshness:       freshness,
+			ID:                id,
+			QueryKey:          queryKey,
+			Title:             title,
+			Scope:             scope,
+			ChunkType:         chunkType,
+			ProjectID:         projectID,
+			ProjectName:       projectName,
+			LastReviewAt:      lastReviewAt,
+			LastActivityAt:    lastActivity,
+			DaysSinceReview:   daysSinceReview,
+			DaysSinceActivity: daysSinceActivity,
+			StaleSignals:      signals,
+			MinUsefulness:     minUsefulness,
+			MinCorrectness:    minCorrectness,
+			AvgUsefulness:     avgUsefulness,
+			AvgCorrectness:    avgCorrectness,
+			ReviewCount:       reviewCount,
+			Freshness:         freshness,
+			Reason:            reason,
 		})
 	}
 
@@ -213,8 +344,16 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 		items = []ReviewInboxItem{}
 	}
 
+	actionableTotal := 0
+	for _, item := range items {
+		if item.Reason.Category != "aging" {
+			actionableTotal++
+		}
+	}
+
 	writeJSON(w, http.StatusOK, ReviewInboxResponse{
-		Chunks: items,
-		Total:  len(items),
+		Chunks:          items,
+		Total:           len(items),
+		ActionableTotal: actionableTotal,
 	})
 }
