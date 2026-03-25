@@ -510,6 +510,11 @@ func (t *Tools) RegisterFocus(ctx context.Context, orgID string, in RegisterFocu
 		return nil, fmt.Errorf("task is required")
 	}
 
+	// Default to empty slice if tags not provided (column is NOT NULL)
+	if in.Tags == nil {
+		in.Tags = []string{}
+	}
+
 	var sessionID string
 	err := t.pool.QueryRow(ctx, `
 		UPDATE sessions
