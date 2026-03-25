@@ -71,8 +71,8 @@ func projectID(r *http.Request) string {
 // POST /v1/context
 func (h *Handlers) WriteContext(w http.ResponseWriter, r *http.Request) {
 	var in mcp.WriteContextInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &in); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	result, err := h.tools.WriteContext(r.Context(), projectID(r), in)
@@ -192,8 +192,8 @@ func (h *Handlers) GetContextReviews(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) UpdateContext(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var in mcp.UpdateContextInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &in); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	in.ID = id
@@ -220,8 +220,8 @@ func (h *Handlers) DeleteContext(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ReviewContext(w http.ResponseWriter, r *http.Request) {
 	chunkID := chi.URLParam(r, "id")
 	var in mcp.ReviewContextInput
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &in); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	in.ChunkID = chunkID
@@ -239,7 +239,11 @@ func (h *Handlers) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		OrgSlug string `json:"org_slug"`
 		KeyName string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.OrgSlug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "org_slug is required")
+		return
+	}
+	if body.OrgSlug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "org_slug is required")
 		return
 	}

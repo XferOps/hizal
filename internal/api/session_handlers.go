@@ -62,8 +62,8 @@ func (h *SessionHandlers) StartSession(w http.ResponseWriter, r *http.Request) {
 		ProjectID     *string `json:"project_id,omitempty"`
 		LifecycleSlug *string `json:"lifecycle_slug,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.AgentID == "" {
@@ -111,8 +111,8 @@ func (h *SessionHandlers) RegisterFocus(w http.ResponseWriter, r *http.Request) 
 		Task string   `json:"task"`
 		Tags []string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	orgID, err := h.resolveOrgIDFromSession(r, sessionID)
@@ -321,8 +321,8 @@ func (h *SessionHandlers) ConsolidateSession(w http.ResponseWriter, r *http.Requ
 			PromoteToPrinciple bool   `json:"promote_to_principle,omitempty"`
 		} `json:"actions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 
@@ -406,7 +406,11 @@ func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.
 		IsDefault   bool                   `json:"is_default"`
 		Config      map[string]interface{} `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -537,8 +541,8 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 		IsDefault   *bool                  `json:"is_default"`
 		Config      map[string]interface{} `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 

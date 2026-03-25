@@ -71,7 +71,11 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
 		ConsolidationBehavior string           `json:"consolidation_behavior"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -159,8 +163,8 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
 		ConsolidationBehavior *string          `json:"consolidation_behavior"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 

@@ -15,6 +15,13 @@ import (
 
 const version = "0.2.1"
 
+const (
+	defaultBodyLimitBytes    = int64(1 << 20)
+	chunkWriteBodyLimitBytes = int64(256 << 10)
+	mcpBodyLimitBytes        = int64(512 << 10)
+	authBodyLimitBytes       = int64(16 << 10)
+)
+
 func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	requireJWTSecretForStartup()
 
@@ -24,6 +31,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(corsMiddleware)
+	r.Use(BodyLimit(defaultBodyLimitBytes))
 
 	r.Get("/health", healthHandler)
 
@@ -74,7 +82,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(JWTAuth())
 		r.Use(UserRateLimit(20.0/3600.0, 20))
-		r.Post("/api/v1/public/chunks/{chunkID}/add", pubH.AddPublicChunk)
+		r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/api/v1/public/chunks/{chunkID}/add", pubH.AddPublicChunk)
 	})
 
 	// Stripe webhook — no JWT auth, verified by Stripe-Signature header
@@ -82,11 +90,11 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// ── Auth routes (no auth required for register/login) ──────────────────
 	r.Route("/v1/auth", func(r chi.Router) {
-		r.Post("/register", authH.Register)
-		r.Post("/login", authH.Login)
+		r.With(BodyLimit(authBodyLimitBytes)).Post("/register", authH.Register)
+		r.With(BodyLimit(authBodyLimitBytes)).Post("/login", authH.Login)
 		r.With(JWTAuth()).Get("/me", authH.Me)
-		r.With(JWTAuth()).Patch("/me", authH.UpdateUser)
-		r.Post("/accept-invite", inviteH.AcceptInvite)
+		r.With(JWTAuth(), BodyLimit(authBodyLimitBytes)).Patch("/me", authH.UpdateUser)
+		r.With(BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
 	})
 
 	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
@@ -204,7 +212,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// MCP endpoint (requires API key auth). POST serves JSON-RPC requests directly,
 	// while GET/DELETE advertise stateless Streamable HTTP semantics to remote clients.
-	r.With(APIKeyAuth(pool)).Route("/mcp", func(r chi.Router) {
+	r.With(BodyLimit(mcpBodyLimitBytes), APIKeyAuth(pool)).Route("/mcp", func(r chi.Router) {
 		r.Method(http.MethodGet, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if mcpServer == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
@@ -290,7 +298,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			}
 			h.ReadContext(w, r)
 		})
-		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+		r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 				return
@@ -363,7 +371,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 				}
 				h.GetContextReviews(w, r)
 			})
-			r.Patch("/", func(w http.ResponseWriter, r *http.Request) {
+			r.With(BodyLimit(chunkWriteBodyLimitBytes)).Patch("/", func(w http.ResponseWriter, r *http.Request) {
 				if h == nil {
 					writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 					return
@@ -387,7 +395,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 				}
 				h.DeleteContext(w, r)
 			})
-			r.Post("/review", func(w http.ResponseWriter, r *http.Request) {
+			r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/review", func(w http.ResponseWriter, r *http.Request) {
 				if h == nil {
 					writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 					return

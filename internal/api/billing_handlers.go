@@ -193,6 +193,10 @@ func (h *BillingHandlers) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		if isRequestBodyTooLarge(err) {
+			writeBodyTooLarge(w)
+			return
+		}
 		writeError(w, http.StatusBadRequest, "READ_ERROR", err.Error())
 		return
 	}
@@ -350,8 +354,8 @@ func (h *BillingHandlers) DowngradeChoice(w http.ResponseWriter, r *http.Request
 		Action    string  `json:"action"`     // "keep_one" | "start_fresh"
 		ProjectID *string `json:"project_id"` // required when action="keep_one"
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 

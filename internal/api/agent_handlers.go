@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -98,7 +97,11 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		InstanceID  string   `json:"instance_id"`
 		Tags        []string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -342,8 +345,8 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		IPAddress   *string   `json:"ip_address"`
 		Tags        *[]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Status != nil && !validAgentStatuses[*body.Status] {
@@ -400,7 +403,11 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID string `json:"project_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ProjectID == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "project_id is required")
+		return
+	}
+	if body.ProjectID == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "project_id is required")
 		return
 	}

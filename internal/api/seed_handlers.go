@@ -86,7 +86,11 @@ func (h *SeedHandlers) SeedProject(w http.ResponseWriter, r *http.Request) {
 		RepoURL     string `json:"repo_url"`
 		GitHubToken string `json:"github_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RepoURL == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "repo_url is required")
+		return
+	}
+	if body.RepoURL == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "repo_url is required")
 		return
 	}
