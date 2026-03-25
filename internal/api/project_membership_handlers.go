@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -116,7 +115,11 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "email is required")
+		return
+	}
+	if body.Email == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "email is required")
 		return
 	}
@@ -231,7 +234,11 @@ func (h *ProjectMembershipHandlers) UpdateMemberRole(w http.ResponseWriter, r *h
 	var body struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Role == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "role is required")
+		return
+	}
+	if body.Role == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "role is required")
 		return
 	}

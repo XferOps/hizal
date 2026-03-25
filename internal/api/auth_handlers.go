@@ -98,8 +98,8 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Name     string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Email == "" || body.Password == "" || body.Name == "" {
@@ -275,8 +275,8 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 
@@ -320,8 +320,8 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name *string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "invalid request body")
 		return
 	}
 	if body.Name == nil {

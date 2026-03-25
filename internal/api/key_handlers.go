@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -33,8 +32,8 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 		ProjectIDs []string `json:"project_ids"`
 		ScopeAll   bool     `json:"scope_all"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Name == "" || body.OrgID == "" {

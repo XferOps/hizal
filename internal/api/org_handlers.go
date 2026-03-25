@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -53,7 +52,11 @@ func (h *OrgHandlers) CreateOrg(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 		Slug string `json:"slug"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -248,8 +251,8 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 		Name *string `json:"name"`
 		Slug *string `json:"slug"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "invalid request body")
 		return
 	}
 	if body.Name == nil && body.Slug == nil {
@@ -302,7 +305,11 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "email is required")
+		return
+	}
+	if body.Email == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "email is required")
 		return
 	}
@@ -376,7 +383,11 @@ func (h *OrgHandlers) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Role == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "role is required")
+		return
+	}
+	if body.Role == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "role is required")
 		return
 	}

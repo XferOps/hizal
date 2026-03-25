@@ -71,7 +71,11 @@ func (h *AgentTypeHandlers) CreateAgentType(w http.ResponseWriter, r *http.Reque
 		InjectFilters models.AgentTypeFilterConfig `json:"inject_filters"`
 		SearchFilters models.AgentTypeFilterConfig `json:"search_filters"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -158,8 +162,8 @@ func (h *AgentTypeHandlers) UpdateAgentType(w http.ResponseWriter, r *http.Reque
 		InjectFilters *models.AgentTypeFilterConfig `json:"inject_filters"`
 		SearchFilters *models.AgentTypeFilterConfig `json:"search_filters"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 
