@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/XferOps/hizal/internal/auth"
 	"github.com/XferOps/hizal/internal/models"
@@ -19,13 +21,50 @@ type AuthHandlers struct {
 	pool *pgxpool.Pool
 }
 
+const (
+	minPasswordLength = 8
+	maxPasswordLength = 128
+)
+
+type passwordValidationError struct {
+	message string
+}
+
+func (e *passwordValidationError) Error() string {
+	return e.message
+}
+
 func NewAuthHandlers(pool *pgxpool.Pool) *AuthHandlers {
 	return &AuthHandlers{pool: pool}
+}
+
+func validatePassword(password string) error {
+	length := utf8.RuneCountInString(password)
+	if length < minPasswordLength || length > maxPasswordLength {
+		return &passwordValidationError{
+			message: fmt.Sprintf("password must be between %d and %d characters", minPasswordLength, maxPasswordLength),
+		}
+	}
+	return nil
+}
+
+func writePasswordValidationError(w http.ResponseWriter, err error) bool {
+	var validationErr *passwordValidationError
+	if !errors.As(err, &validationErr) {
+		return false
+	}
+
+	writeError(w, http.StatusBadRequest, "INVALID_PASSWORD", validationErr.Error())
+	return true
 }
 
 // registerUser creates a user record and returns the new user ID + JWT.
 // Extracted so invite_handlers can reuse the logic without going through HTTP.
 func (h *AuthHandlers) registerUser(ctx context.Context, email, password, name string) (userID, token string, err error) {
+	if err := validatePassword(password); err != nil {
+		return "", "", err
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", "", err
@@ -64,6 +103,10 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Email == "" || body.Password == "" || body.Name == "" {
 		writeError(w, http.StatusBadRequest, "MISSING_FIELDS", "email, password, and name are required")
+		return
+	}
+	if err := validatePassword(body.Password); err != nil {
+		writePasswordValidationError(w, err)
 		return
 	}
 

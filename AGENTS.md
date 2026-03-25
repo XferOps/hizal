@@ -4,14 +4,13 @@ You are a dev agent working on the Hizal codebase (Go API + React/Vite frontend)
 This file tells you how to work here. Read it fully before doing anything else.
 
 Hizal is both the product you're building and the memory system you use to build it.
-Everything — specs, decisions, conventions, lessons — lives in Hizal.
 
 ---
 
 ## Your First Three Steps (always, no exceptions)
 
 1. **Start a Hizal session**
-2. **Read the task spec (from Hizal)**
+2. **Read the task spec from Forge MCP (Hizal project_id `cmmhg1y1f0001le01gkx2a3sk`)**
 3. **Search Hizal for existing context on the task**
 
 Only then start writing code.
@@ -33,7 +32,7 @@ Then register what you're working on:
 ```
 register_focus(
   session_id="<session-id>",
-  task="WNW-XX: <ticket title>",
+  task="HIZAL-XX: <ticket title>",
   project_id="<project-id>"
 )
 ```
@@ -58,6 +57,10 @@ get_active_session()
 ```
 forge_get_task(taskId="<ticket-id>")
 ```
+
+Hizal Forge tickets live in project `cmmhg1y1f0001le01gkx2a3sk` and use the `HIZAL-###` prefix.
+If direct search by full ticket id fails, search within that project by number or title, or list tasks
+for that project and locate the ticket there.
 
 The ticket description is the spec. Read it fully before moving to step 3.
 
@@ -131,10 +134,15 @@ Don't rediscover what the team already decided.
 Before writing a single line of code:
 
 ```bash
-git checkout main && git pull
-git checkout -b feat/<ticket-id-lowercase>-<short-description>
-# e.g. feat/wnw-68-agent-types
+git fetch origin main
+git checkout -b feat/<ticket-id-lowercase>-<short-description> main
+# e.g. feat/hizal-146-password-strength-validation
 ```
+
+This repo commonly uses **git worktrees**. `main` may already be checked out in another worktree,
+so do not assume `git checkout main` will succeed. If your current worktree already points at the
+same commit as `main`, branch from the current `HEAD`. Otherwise branch from fetched `main`
+without trying to switch the other worktree.
 
 **Never commit directly to main.** If you realize you've committed to main, stop —
 create a branch from your current HEAD and reset main before pushing.
@@ -187,10 +195,11 @@ Done means: branch pushed, PR open, reviewers requested.
 
 ```bash
 gh pr create \
-  --title "feat(wnw-XX): <description>" \
-  --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n---\n**Forge ticket:** [WNW-XX](https://forge.xferops.dev/projects/cmmhg1y1f0001le01gkx2a3sk) — <ticket title>"
+  --repo parkerscobey/hizal \
+  --title "feat(HIZAL-XX): <description>" \
+  --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n---\n**Forge ticket:** [HIZAL-XX](https://forge.xferops.dev/projects/cmmhg1y1f0001le01gkx2a3sk) — <ticket title>"
 
-gh pr edit --add-reviewer parker-xferops
+gh pr edit --repo parkerscobey/hizal --add-reviewer parker-xferops
 ```
 
 Always request review from `parker-xferops`.
@@ -198,30 +207,15 @@ Always request review from `parker-xferops`.
 After pushing fixes to address review feedback, **re-request review**:
 
 ```bash
-gh api repos/XferOps/<repo>/pulls/<PR#>/requested_reviewers \
+gh api repos/parkerscobey/hizal/pulls/<PR#>/requested_reviewers \
   -X POST -f 'reviewers[]=parker-xferops'
-```
-
----
-
-## Update the Spec
-
-After opening the PR, update the spec chunk with status and PR link:
-
-```
-update_context(
-  query_key="spec-wnw-XX-short-name",
-  project_id="<project-id>",
-  content="<spec content with Status: CODE_REVIEW and PR: <url>>",
-  change_note="PR opened: <url>"
-)
 ```
 
 ---
 
 ## End Your Session
 
-After the PR is open and the spec is updated:
+After the PR is open and the Forge spec is updated:
 
 ```
 end_session(session_id="<session-id>")
@@ -240,26 +234,39 @@ This is how knowledge compounds across agents and sessions.
 
 When you discover work that needs doing (bugs, improvements, missing features):
 
+Specs live in **Forge**, not in Hizal chunks. Create a new Forge task in the Hizal project backlog.
+
+Hizal Forge project:
+- Project ID: `cmmhg1y1f0001le01gkx2a3sk`
+- Backlog column ID: `cmmhg1y1f0002le01a4uwj2hs`
+
 ```
-write_chunk(
-  project_id="<project-id>",
-  query_key="spec-wnw-XX-short-description",
-  title="WNW-XX: Title",
-  chunk_type="SPEC",
-  content="<spec in the format above>"
+forge_create_task(
+  projectId="cmmhg1y1f0001le01gkx2a3sk",
+  columnId="cmmhg1y1f0002le01a4uwj2hs",
+  title="Short spec title",
+  description="<full spec / problem / fix / files>",
+  type="TASK",   # or BUG / STORY
+  priority="MEDIUM"
 )
 ```
 
 Search existing specs to find the next available number:
 
 ```
-search_context(query="spec WNW", project_id="<project-id>")
+forge_search_tasks(query="HIZAL", projectId="cmmhg1y1f0001le01gkx2a3sk")
 ```
+
+If search is incomplete, list all tasks for the project and inspect the highest existing `HIZAL-###`
+ticket number before creating a new one.
+
+The Forge task description is the spec. Write the full problem statement, proposed fix, and any
+relevant files or constraints there.
 
 ---
 
 ## The Principle
 
 The prompt that kicked off your session is just a door opener.
-Everything else — the spec, the conventions, the prior decisions — lives in Hizal.
+Everything else — the spec in Forge, and the conventions and prior decisions in Hizal — should shape the work.
 Read those first. Code second.
