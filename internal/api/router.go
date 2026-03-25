@@ -16,6 +16,8 @@ import (
 const version = "0.2.1"
 
 func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
+	requireJWTSecretForStartup()
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
