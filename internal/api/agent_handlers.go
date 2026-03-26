@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -21,11 +22,12 @@ var validAgentStatuses = map[string]bool{
 }
 
 type AgentHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewAgentHandlers(pool *pgxpool.Pool) *AgentHandlers {
-	return &AgentHandlers{pool: pool}
+func NewAgentHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *AgentHandlers {
+	return &AgentHandlers{pool: pool, auditLogger: auditLogger}
 }
 
 // requireAgentAccess verifies the caller owns or is an org admin/owner of the agent.
@@ -156,6 +158,19 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		}
 		writeInternalError(r, w, "DB_ERROR", err)
 		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "AGENT_CREATED",
+			ResourceType: strPtr("agent"),
+			ResourceID:   &agent.ID,
+			Metadata:     map[string]any{"agent_name": agent.Name, "agent_type": agent.Type},
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -378,16 +393,36 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 // DELETE /v1/agents/:id — deletes agent and cascades to keys + project assignments
 func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
-	if _, _, err := requireAgentAccess(r, h.pool, agentID, "owner", "admin"); err != nil {
+	actor, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
+
+	orgID, _, err := requireAgentAccess(r, h.pool, agentID, "owner", "admin")
+	if err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 		return
 	}
 
-	_, err := h.pool.Exec(r.Context(), `DELETE FROM agents WHERE id = $1`, agentID)
+	_, err = h.pool.Exec(r.Context(), `DELETE FROM agents WHERE id = $1`, agentID)
 	if err != nil {
 		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      actor.ID,
+			ActorEmail:   &actor.Email,
+			Action:       "AGENT_DELETED",
+			ResourceType: strPtr("agent"),
+			ResourceID:   &agentID,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

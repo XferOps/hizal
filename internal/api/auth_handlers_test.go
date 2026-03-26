@@ -40,7 +40,7 @@ func TestRegisterRejectsWeakPassword(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 
-	NewAuthHandlers(nil).Register(rr, req)
+	NewAuthHandlers(nil, nil).Register(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -54,7 +54,7 @@ func TestRegisterRejectsWeakPassword(t *testing.T) {
 }
 
 func TestRegisterUserRejectsWeakPassword(t *testing.T) {
-	_, _, err := NewAuthHandlers(nil).registerUser(context.Background(), "test@example.com", "short", "Test User")
+	_, _, err := NewAuthHandlers(nil, nil).registerUser(context.Background(), "test@example.com", "short", "Test User")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
