@@ -236,16 +236,18 @@ type AgentType struct {
 //
 // Org-specific types (org_id != NULL) are fully CRUD-able.
 type ChunkType struct {
-	ID                    string    `json:"id" db:"id"`
-	OrgID                 *string   `json:"org_id,omitempty" db:"org_id"`
-	Name                  string    `json:"name" db:"name"`
-	Slug                  string    `json:"slug" db:"slug"`
-	Description           *string   `json:"description,omitempty" db:"description"`
-	DefaultScope          string    `json:"default_scope" db:"default_scope"`
+	ID                    string          `json:"id" db:"id"`
+	OrgID                 *string         `json:"org_id,omitempty" db:"org_id"`
+	Name                  string          `json:"name" db:"name"`
+	Slug                  string          `json:"slug" db:"slug"`
+	Description           *string         `json:"description,omitempty" db:"description"`
+	DefaultScope          string          `json:"default_scope" db:"default_scope"`
 	DefaultInjectAudience *InjectAudience `json:"default_inject_audience" db:"default_inject_audience"`
-	ConsolidationBehavior string    `json:"consolidation_behavior" db:"consolidation_behavior"`
-	CreatedAt             time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
+	ConsolidationBehavior string          `json:"consolidation_behavior" db:"consolidation_behavior"`
+	Hidden                bool            `json:"hidden" db:"hidden"`
+	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at" db:"updated_at"`
+	OverridesGlobal       *string         `json:"overrides_global,omitempty"`
 }
 
 // SessionLifecycle represents a row in the session_lifecycles table.
