@@ -205,16 +205,19 @@ type AgentTypeFilterConfig struct {
 // AgentType represents a row in the agent_types table.
 // org_id = NULL means a global preset.
 type AgentType struct {
-	ID            string                `json:"id" db:"id"`
-	OrgID         *string               `json:"org_id,omitempty" db:"org_id"`
-	Name          string                `json:"name" db:"name"`
-	Slug          string                `json:"slug" db:"slug"`
-	BaseType      *string               `json:"base_type,omitempty" db:"base_type"`
-	Description   *string               `json:"description,omitempty" db:"description"`
-	InjectFilters AgentTypeFilterConfig `json:"inject_filters" db:"inject_filters"`
-	SearchFilters AgentTypeFilterConfig `json:"search_filters" db:"search_filters"`
-	CreatedAt     time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at" db:"updated_at"`
+	ID              string                `json:"id" db:"id"`
+	OrgID           *string               `json:"org_id,omitempty" db:"org_id"`
+	Name            string                `json:"name" db:"name"`
+	Slug            string                `json:"slug" db:"slug"`
+	BaseType        *string               `json:"base_type,omitempty" db:"base_type"`
+	Description     *string               `json:"description,omitempty" db:"description"`
+	InjectFilters   AgentTypeFilterConfig `json:"inject_filters" db:"inject_filters"`
+	SearchFilters   AgentTypeFilterConfig `json:"search_filters" db:"search_filters"`
+	Hidden          bool                  `json:"hidden" db:"hidden"`
+	IsGlobal        bool                  `json:"is_global"`
+	OverridesGlobal *string               `json:"overrides_global,omitempty" db:"overrides_global"`
+	CreatedAt       time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 // ChunkType represents a row in the chunk_types table.
