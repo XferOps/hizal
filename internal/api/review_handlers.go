@@ -190,7 +190,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			LEFT JOIN review_stats rs ON rs.chunk_id = oc.id
 			LEFT JOIN latest_review lr ON lr.chunk_id = oc.id
 		WHERE
-			lr.action != 'dismiss_flag'
+			COALESCE(lr.action, '') != 'dismiss_flag'
 			AND (
 				lr.action IN ('needs_update', 'outdated', 'incorrect')
 				OR COALESCE(rs.avg_usefulness, 5) < 3
