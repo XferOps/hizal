@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/XferOps/hizal/internal/auth"
@@ -340,6 +341,23 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	refreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		writeInternalError(r, w, "TOKEN_GEN_FAILED", err)
+		return
+	}
+
+	refreshHash := HashRefreshToken(refreshToken)
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	_, err = h.pool.Exec(r.Context(), `
+		INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, refreshHash, user.ID, expiresAt)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
 	if h.auditLogger != nil {
 		h.auditLogger.Log(r.Context(), audit.Entry{
 			OrgID:      "",
@@ -353,10 +371,112 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user_id":       user.ID,
+		"email":         user.Email,
+		"name":          user.Name,
+	})
+}
+
+// POST /v1/auth/refresh
+func (h *AuthHandlers) Refresh(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
+		return
+	}
+
+	if body.RefreshToken == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_FIELDS", "refresh_token is required")
+		return
+	}
+
+	refreshHash := HashRefreshToken(body.RefreshToken)
+
+	var tokenID string
+	var userID string
+	var expiresAt time.Time
+	var revokedAt *time.Time
+
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, user_id, expires_at, revoked_at
+		FROM refresh_tokens
+		WHERE token_hash = $1
+	`, refreshHash).Scan(&tokenID, &userID, &expiresAt, &revokedAt)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid refresh token")
+		return
+	}
+
+	if revokedAt != nil {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "refresh token has been revoked")
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "refresh token has expired")
+		return
+	}
+
+	var email string
+	err = h.pool.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE refresh_tokens
+		SET revoked_at = NOW()
+		WHERE id = $1
+	`, tokenID)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	newRefreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		writeInternalError(r, w, "TOKEN_GEN_FAILED", err)
+		return
+	}
+
+	newRefreshHash := HashRefreshToken(newRefreshToken)
+	newExpiresAt := time.Now().Add(7 * 24 * time.Hour)
+
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, newRefreshHash, userID, newExpiresAt)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	newAccessToken, err := SignJWT(userID, email)
+	if err != nil {
+		writeInternalError(r, w, "JWT_FAILED", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"token":         newAccessToken,
+		"refresh_token": newRefreshToken,
 	})
 }
 

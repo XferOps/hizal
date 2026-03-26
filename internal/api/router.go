@@ -101,6 +101,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.Route("/v1/auth", func(r chi.Router) {
 		r.With(StrictIPRateLimit(5.0/60.0, 5), BodyLimit(authBodyLimitBytes)).Post("/register", authH.Register)
 		r.With(StrictIPRateLimit(10.0/60.0, 10), BodyLimit(authBodyLimitBytes)).Post("/login", authH.Login)
+		r.With(StrictIPRateLimit(10.0/60.0, 10), BodyLimit(authBodyLimitBytes)).Post("/refresh", authH.Refresh)
 		r.With(JWTAuth()).Get("/me", authH.Me)
 		r.With(JWTAuth(), BodyLimit(authBodyLimitBytes)).Patch("/me", authH.UpdateUser)
 		r.With(StrictIPRateLimit(3.0/3600.0, 3), BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
