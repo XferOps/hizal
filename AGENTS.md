@@ -199,16 +199,16 @@ gh pr create \
   --title "feat(HIZAL-XX): <description>" \
   --body "## Summary\n\n<what you built>\n\n## Testing\n\n<what you ran>\n\n---\n**Forge ticket:** [HIZAL-XX](https://forge.xferops.dev/projects/cmmhg1y1f0001le01gkx2a3sk) — <ticket title>"
 
-gh pr edit --repo parkerscobey/hizal --add-reviewer parker-xferops
+gh pr edit --repo parkerscobey/hizal --add-reviewer parkerscobey
 ```
 
-Always request review from `parker-xferops`.
+Always request review from `parkerscobey`.
 
 After pushing fixes to address review feedback, **re-request review**:
 
 ```bash
 gh api repos/parkerscobey/hizal/pulls/<PR#>/requested_reviewers \
-  -X POST -f 'reviewers[]=parker-xferops'
+  -X POST -f 'reviewers[]=parkerscobey'
 ```
 
 ---
