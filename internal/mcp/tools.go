@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -960,21 +961,41 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 }
 
 func (t *Tools) ReviewContext(ctx context.Context, projectID string, in ReviewContextInput) (*ReviewContextResult, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
 	if in.ChunkID == "" {
 		return nil, fmt.Errorf("chunk_id is required")
 	}
-	if in.Usefulness < 1 || in.Usefulness > 5 || in.Correctness < 1 || in.Correctness > 5 {
+
+	// Default ratings for actions if not explicitly provided (dismiss_flag skips ratings)
+	isDismissAction := strings.HasPrefix(in.Action, "dismiss")
+	if in.Usefulness == 0 && !isDismissAction {
+		if in.Action == "approve" {
+			in.Usefulness = 5
+		} else {
+			in.Usefulness = 1
+		}
+	}
+	if in.Correctness == 0 && !isDismissAction {
+		if in.Action == "approve" {
+			in.Correctness = 5
+		} else {
+			in.Correctness = 1
+		}
+	}
+
+	if !isDismissAction && (in.Usefulness < 1 || in.Usefulness > 5 || in.Correctness < 1 || in.Correctness > 5) {
 		return nil, fmt.Errorf("usefulness and correctness must be 1-5")
 	}
 
-	// Verify chunk exists (scope-aware: ID is globally unique, no project_id gate)
-	var exists bool
-	_ = pool(t).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM context_chunks WHERE id = $1)`, in.ChunkID).Scan(&exists)
-	if !exists {
-		return nil, fmt.Errorf("chunk not found")
+	// Derive project_id from chunk if not provided (for human reviews via API)
+	if projectID == "" {
+		var chunkProjectID sql.NullString
+		err := pool(t).QueryRow(ctx, `SELECT project_id FROM context_chunks WHERE id = $1`, in.ChunkID).Scan(&chunkProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("chunk not found")
+		}
+		if chunkProjectID.Valid {
+			projectID = chunkProjectID.String
+		}
 	}
 
 	var id string

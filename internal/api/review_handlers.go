@@ -23,6 +23,7 @@ type ReviewInboxItem struct {
 	ID                string            `json:"id"`
 	QueryKey          string            `json:"query_key"`
 	Title             string            `json:"title"`
+	Content           string            `json:"content"`
 	Scope             string            `json:"scope"`
 	ChunkType         string            `json:"chunk_type"`
 	ProjectID         *string           `json:"project_id"`
@@ -133,7 +134,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			SELECT id FROM projects WHERE org_id = $1
 		),
 		org_chunks AS (
-			SELECT id, project_id, org_id, query_key, title, scope, chunk_type, updated_at
+			SELECT id, project_id, org_id, query_key, title, content, scope, chunk_type, updated_at
 			FROM context_chunks
 			WHERE org_id = $1 OR project_id IN (SELECT id FROM org_projects)
 		),
@@ -165,6 +166,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 				oc.id,
 				oc.query_key,
 				oc.title,
+				oc.content,
 				oc.scope,
 				oc.chunk_type,
 				oc.project_id,
@@ -187,16 +189,20 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			FROM org_chunks oc
 			LEFT JOIN review_stats rs ON rs.chunk_id = oc.id
 			LEFT JOIN latest_review lr ON lr.chunk_id = oc.id
-			WHERE
+		WHERE
+			lr.action != 'dismiss_flag'
+			AND (
 				lr.action IN ('needs_update', 'outdated', 'incorrect')
 				OR COALESCE(rs.avg_usefulness, 5) < 3
 				OR COALESCE(rs.avg_correctness, 5) < 3
 				OR COALESCE(rs.last_review_at, oc.updated_at) < NOW() - INTERVAL '60 days'
+			)
 		)
 		SELECT
 			nr.id,
 			nr.query_key,
 			nr.title,
+			nr.content,
 			nr.scope,
 			nr.chunk_type,
 			nr.project_id,
@@ -250,7 +256,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var (
-			id, queryKey, title, scope, chunkType string
+			id, queryKey, title, content, scope, chunkType string
 			projectID                             *string
 			projectName                           *string
 			lastReviewAt                          *time.Time
@@ -264,7 +270,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			latestReviewCreatedAt                 *time.Time
 			signalsJSON                           [][]byte
 		)
-		if err := rows.Scan(&id, &queryKey, &title, &scope, &chunkType, &projectID, &projectName, &lastReviewAt, &lastActivity, &reviewCount, &avgUsefulness, &avgCorrectness, &minUsefulness, &minCorrectness, &reasonCategory, &latestAction, &latestNote, &latestReviewCreatedAt, &signalsJSON); err != nil {
+		if err := rows.Scan(&id, &queryKey, &title, &content, &scope, &chunkType, &projectID, &projectName, &lastReviewAt, &lastActivity, &reviewCount, &avgUsefulness, &avgCorrectness, &minUsefulness, &minCorrectness, &reasonCategory, &latestAction, &latestNote, &latestReviewCreatedAt, &signalsJSON); err != nil {
 			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
@@ -316,6 +322,7 @@ func (h *ReviewHandlers) ReviewInbox(w http.ResponseWriter, r *http.Request) {
 			ID:                id,
 			QueryKey:          queryKey,
 			Title:             title,
+			Content:           content,
 			Scope:             scope,
 			ChunkType:         chunkType,
 			ProjectID:         projectID,
