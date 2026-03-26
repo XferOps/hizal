@@ -187,6 +187,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		// Agent types
 		r.Post("/v1/orgs/{id}/agent-types", agentTypeH.CreateAgentType)
 		r.Get("/v1/orgs/{id}/agent-types", agentTypeH.ListAgentTypes)
+		r.Post("/v1/orgs/{id}/agent-types/{slug}/fork", agentTypeH.ForkAgentType)
+		r.Post("/v1/orgs/{id}/agent-types/{slug}/reset", agentTypeH.ResetOrHideAgentType)
 		r.Get("/v1/agent-types/{id}", agentTypeH.GetAgentType)
 		r.Patch("/v1/agent-types/{id}", agentTypeH.UpdateAgentType)
 		r.Delete("/v1/agent-types/{id}", agentTypeH.DeleteAgentType)
@@ -215,6 +217,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			r.Get("/v1/orgs/{id}/sessions", sessionH.ListSessions)
 			r.Get("/v1/orgs/{id}/session-lifecycles", sessionH.ListSessionLifecycles)
 			r.Post("/v1/orgs/{id}/session-lifecycles", sessionH.CreateSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/fork", sessionH.ForkSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/reset", sessionH.ResetOrHideSessionLifecycle)
 			r.Get("/v1/session-lifecycles/{id}", sessionH.GetSessionLifecycle)
 			r.Patch("/v1/session-lifecycles/{id}", sessionH.UpdateSessionLifecycle)
 			r.Delete("/v1/session-lifecycles/{id}", sessionH.DeleteSessionLifecycle)

@@ -664,10 +664,24 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 	orgID := chi.URLParam(r, "id")
 
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
-		FROM session_lifecycles
-		WHERE org_id = $1 OR org_id IS NULL
-		ORDER BY org_id NULLS FIRST, name
+		SELECT
+			sl.id, sl.org_id, sl.name, sl.slug, sl.is_default, sl.description,
+			sl.config, sl.hidden, sl.created_at, sl.updated_at,
+			g.id AS overrides_global_id
+		FROM session_lifecycles sl
+		LEFT JOIN session_lifecycles g
+			ON g.slug = sl.slug AND g.org_id IS NULL AND sl.org_id = $1
+		WHERE (
+			-- org shadow rows (not hidden)
+			(sl.org_id = $1 AND sl.hidden = false)
+			OR
+			-- globals with no org shadow
+			(sl.org_id IS NULL AND NOT EXISTS (
+				SELECT 1 FROM session_lifecycles shadow
+				WHERE shadow.org_id = $1 AND shadow.slug = sl.slug
+			))
+		)
+		ORDER BY sl.org_id NULLS FIRST, sl.name
 	`, orgID)
 	if err != nil {
 		writeInternalError(r, w, "QUERY_FAILED", err)
@@ -676,13 +690,16 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 	defer rows.Close()
 
 	type lcRow struct {
-		ID        string      `json:"id"`
-		OrgID     *string     `json:"org_id,omitempty"`
-		Name      string      `json:"name"`
-		Slug      string      `json:"slug"`
-		IsDefault bool        `json:"is_default"`
-		Config    interface{} `json:"config"`
-		IsGlobal  bool        `json:"is_global"`
+		ID              string      `json:"id"`
+		OrgID           *string     `json:"org_id,omitempty"`
+		Name            string      `json:"name"`
+		Slug            string      `json:"slug"`
+		IsDefault       bool        `json:"is_default"`
+		Description     *string     `json:"description,omitempty"`
+		Config          interface{} `json:"config"`
+		Hidden          bool        `json:"hidden"`
+		IsGlobal        bool        `json:"is_global"`
+		OverridesGlobal *string     `json:"overrides_global,omitempty"`
 	}
 
 	lifecycles := []lcRow{}
@@ -690,11 +707,15 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 		var lc lcRow
 		var configRaw []byte
 		var createdAt, updatedAt interface{}
-		if err := rows.Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, &createdAt, &updatedAt); err != nil {
+		var overridesGlobalID *string
+		if err := rows.Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &lc.Description, &configRaw, &lc.Hidden, &createdAt, &updatedAt, &overridesGlobalID); err != nil {
 			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
 		lc.IsGlobal = lc.OrgID == nil
+		if overridesGlobalID != nil {
+			lc.OverridesGlobal = overridesGlobalID
+		}
 		if err := json.Unmarshal(configRaw, &lc.Config); err != nil {
 			lc.Config = string(configRaw)
 		}
@@ -704,6 +725,141 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"lifecycles": lifecycles,
 	})
+}
+
+// POST /v1/orgs/:id/session-lifecycles/:slug/fork
+func (h *SessionHandlers) ForkSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "id")
+	slug := chi.URLParam(r, "slug")
+
+	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var globalID string
+	var globalName, globalSlug string
+	var globalDesc *string
+	var globalIsDefault bool
+	var globalConfig []byte
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, name, slug, description, is_default, config
+		FROM session_lifecycles WHERE org_id IS NULL AND slug = $1
+	`, slug).Scan(
+		&globalID, &globalName, &globalSlug, &globalDesc, &globalIsDefault, &globalConfig,
+	)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "global session lifecycle not found")
+		return
+	}
+
+	var existingID string
+	err = h.pool.QueryRow(r.Context(), `SELECT id FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug).Scan(&existingID)
+	if err == nil {
+		writeError(w, http.StatusConflict, "ALREADY_OVERRIDDEN", "org already has an override for this session lifecycle")
+		return
+	}
+
+	var lc struct {
+		ID        string      `json:"id"`
+		OrgID     *string     `json:"org_id,omitempty"`
+		Name      string      `json:"name"`
+		Slug      string      `json:"slug"`
+		IsDefault bool        `json:"is_default"`
+		Config    interface{} `json:"config"`
+		IsGlobal  bool        `json:"is_global"`
+	}
+	err = h.pool.QueryRow(r.Context(), `
+		INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config, hidden)
+		VALUES ($1, $2, $3, $4, $5, $6, false)
+		RETURNING id, org_id, name, slug, is_default, config, created_at, updated_at
+	`, orgID, globalName, globalSlug, globalIsDefault, nullableStr(*globalDesc), globalConfig).Scan(
+		&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &globalConfig, new(time.Time), new(time.Time),
+	)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	lc.IsGlobal = false
+	_ = json.Unmarshal(globalConfig, &lc.Config)
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"lifecycle":           lc,
+		"overrides_global":   globalID,
+	})
+}
+
+// POST /v1/orgs/:id/session-lifecycles/:slug/reset?action=hide|reset
+func (h *SessionHandlers) ResetOrHideSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "id")
+	slug := chi.URLParam(r, "slug")
+	action := r.URL.Query().Get("action")
+
+	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var globalID string
+	err := h.pool.QueryRow(r.Context(), `SELECT id FROM session_lifecycles WHERE org_id IS NULL AND slug = $1`, slug).Scan(&globalID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "global session lifecycle not found")
+		return
+	}
+
+	if action == "hide" {
+		var existingID string
+		var existingHidden bool
+		err = h.pool.QueryRow(r.Context(), `SELECT id, hidden FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug).Scan(&existingID, &existingHidden)
+		if err == nil {
+			if existingHidden {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, err = h.pool.Exec(r.Context(), `UPDATE session_lifecycles SET hidden = true WHERE id = $1`, existingID)
+			if err != nil {
+				writeInternalError(r, w, "DB_ERROR", err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		var globalName, globalSlug string
+		var globalDesc *string
+		var globalIsDefault bool
+		var globalConfig []byte
+		err = h.pool.QueryRow(r.Context(), `
+			SELECT name, slug, description, is_default, config
+			FROM session_lifecycles WHERE org_id IS NULL AND slug = $1
+		`, slug).Scan(
+			&globalName, &globalSlug, &globalDesc, &globalIsDefault, &globalConfig,
+		)
+		if err != nil {
+			writeInternalError(r, w, "DB_ERROR", err)
+			return
+		}
+
+		_, err = h.pool.Exec(r.Context(), `
+			INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config, hidden)
+			VALUES ($1, $2, $3, $4, $5, $6, true)
+		`, orgID, globalName, globalSlug, globalIsDefault, nullableStr(*globalDesc), globalConfig)
+		if err != nil {
+			writeInternalError(r, w, "DB_ERROR", err)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(), `DELETE FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // formatTime converts a pgx time value to RFC3339 string.
