@@ -291,3 +291,19 @@ type Session struct {
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
 }
+
+// AuditLogEntry represents a row in the audit_log table.
+type AuditLogEntry struct {
+	ID            string         `json:"id" db:"id"`
+	OrgID         string         `json:"org_id" db:"org_id"`
+	ActorType     string         `json:"actor_type" db:"actor_type"` // USER | AGENT | API_KEY
+	ActorID       string         `json:"actor_id" db:"actor_id"`
+	ActorEmail    *string        `json:"actor_email,omitempty" db:"actor_email"`
+	Action        string         `json:"action" db:"action"`
+	ResourceType  *string        `json:"resource_type,omitempty" db:"resource_type"`
+	ResourceID    *string        `json:"resource_id,omitempty" db:"resource_id"`
+	Metadata      map[string]any `json:"metadata" db:"metadata"`
+	IP            *string        `json:"ip,omitempty" db:"ip"`
+	UserAgent     *string        `json:"user_agent,omitempty" db:"user_agent"`
+	CreatedAt     time.Time      `json:"created_at" db:"created_at"`
+}
