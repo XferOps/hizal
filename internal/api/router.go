@@ -215,6 +215,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			r.Get("/v1/orgs/{id}/sessions", sessionH.ListSessions)
 			r.Get("/v1/orgs/{id}/session-lifecycles", sessionH.ListSessionLifecycles)
 			r.Post("/v1/orgs/{id}/session-lifecycles", sessionH.CreateSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/fork", sessionH.ForkSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/reset", sessionH.ResetOrHideSessionLifecycle)
 			r.Get("/v1/session-lifecycles/{id}", sessionH.GetSessionLifecycle)
 			r.Patch("/v1/session-lifecycles/{id}", sessionH.UpdateSessionLifecycle)
 			r.Delete("/v1/session-lifecycles/{id}", sessionH.DeleteSessionLifecycle)

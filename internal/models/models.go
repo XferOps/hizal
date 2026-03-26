@@ -253,15 +253,17 @@ type ChunkType struct {
 // SessionLifecycle represents a row in the session_lifecycles table.
 // org_id = NULL means a global built-in preset (default, dev, admin, orchestrator).
 type SessionLifecycle struct {
-	ID          string    `json:"id" db:"id"`
-	OrgID       *string   `json:"org_id,omitempty" db:"org_id"`
-	Name        string    `json:"name" db:"name"`
-	Slug        string    `json:"slug" db:"slug"`
-	IsDefault   bool      `json:"is_default" db:"is_default"`
-	Description *string   `json:"description,omitempty" db:"description"`
-	Config      []byte    `json:"config" db:"config"` // JSONB
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID              string          `json:"id" db:"id"`
+	OrgID           *string         `json:"org_id,omitempty" db:"org_id"`
+	Name            string          `json:"name" db:"name"`
+	Slug            string          `json:"slug" db:"slug"`
+	IsDefault       bool            `json:"is_default" db:"is_default"`
+	Description     *string         `json:"description,omitempty" db:"description"`
+	Config          []byte          `json:"config" db:"config"` // JSONB
+	Hidden          bool            `json:"hidden" db:"hidden"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+	OverridesGlobal *string         `json:"overrides_global,omitempty"`
 }
 
 // SessionLifecycleConfig is the parsed form of SessionLifecycle.Config.
