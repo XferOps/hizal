@@ -194,6 +194,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		// Chunk types
 		r.Post("/v1/orgs/{id}/chunk-types", chunkTypeH.CreateChunkType)
 		r.Get("/v1/orgs/{id}/chunk-types", chunkTypeH.ListChunkTypes)
+		r.Post("/v1/orgs/{id}/chunk-types/{slug}/override", chunkTypeH.ForkOverride)
+		r.Delete("/v1/orgs/{id}/chunk-types/{slug}/override", chunkTypeH.ResetOrHide)
 		r.Get("/v1/chunk-types/{id}", chunkTypeH.GetChunkType)
 		r.Patch("/v1/chunk-types/{id}", chunkTypeH.UpdateChunkType)
 		r.Delete("/v1/chunk-types/{id}", chunkTypeH.DeleteChunkType)
