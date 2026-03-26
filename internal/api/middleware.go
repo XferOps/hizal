@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -165,27 +164,22 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 					}
 				}
 
-			// If no agent_id or org_id, try resolving from a chunk ID in the URL path.
-			// This covers GET/PATCH/DELETE /v1/context/:id and GET /v1/context/:id/versions.
-			// Also covers GET /v1/context/:id/reviews (HIZAL-137)
-			if orgID == "" {
-				chunkID := extractChunkIDFromPath(r.URL.Path)
-				log.Printf("[ContextAuth] path=%s chunkID='%s' projectID='%s' agentID='%s' orgID='%s'",
-					r.URL.Path, chunkID, projectID, r.URL.Query().Get("agent_id"), r.URL.Query().Get("org_id"))
-				if chunkID != "" {
-					err := pool.QueryRow(r.Context(), `
-						SELECT COALESCE(
-							cc.org_id,
-							(SELECT p.org_id FROM projects p WHERE p.id = cc.project_id),
-							(SELECT a.org_id FROM agents a WHERE a.id = cc.agent_id)
-						)
-						FROM context_chunks cc WHERE cc.id = $1
-					`, chunkID).Scan(&orgID)
-					if err != nil {
-						log.Printf("[ContextAuth] org lookup failed for chunk %s: %v", chunkID, err)
+				// If no agent_id or org_id, try resolving from a chunk ID in the URL path.
+				// This covers GET/PATCH/DELETE /v1/context/:id and GET /v1/context/:id/versions.
+				// Also covers GET /v1/context/:id/reviews (HIZAL-137)
+				if orgID == "" {
+					chunkID := extractChunkIDFromPath(r.URL.Path)
+					if chunkID != "" {
+						_ = pool.QueryRow(r.Context(), `
+							SELECT COALESCE(
+								cc.org_id,
+								(SELECT p.org_id FROM projects p WHERE p.id = cc.project_id),
+								(SELECT a.org_id FROM agents a WHERE a.id = cc.agent_id)
+							)
+							FROM context_chunks cc WHERE cc.id = $1
+						`, chunkID).Scan(&orgID)
 					}
 				}
-			}
 
 				if orgID != "" {
 					// Verify caller is a member of this org
