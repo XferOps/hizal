@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/embeddings"
 	"github.com/XferOps/hizal/internal/mcp"
 	"github.com/XferOps/hizal/internal/usage"
@@ -42,22 +43,24 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	var h *Handlers
 	var mcpServer *mcp.Server
 	var tracker *usage.Tracker
+	var auditLogger *audit.AuditLogger
 	if pool != nil {
 		mcpServer = mcp.NewServer(pool, embed)
 		h = NewHandlers(mcpServer.Tools(), pool)
 		tracker = usage.New(pool)
+		auditLogger = audit.New(pool)
 	}
 
-	authH := NewAuthHandlers(pool)
+	authH := NewAuthHandlers(pool, auditLogger)
 	inviteH, _ := NewInviteHandlers(context.Background(), pool)
-	orgH := NewOrgHandlers(pool)
+	orgH := NewOrgHandlers(pool, auditLogger)
 	projH := NewProjectHandlers(pool)
 	projMemberH := NewProjectMembershipHandlers(pool)
-	agentH := NewAgentHandlers(pool)
+	agentH := NewAgentHandlers(pool, auditLogger)
 	agentKeyH := NewAgentKeyHandlers(pool)
 	agentOnboardingH := NewAgentOnboardingHandlers(pool)
 	skillH := NewSkillHandlers(pool)
-	keyH := NewKeyHandlers(pool)
+	keyH := NewKeyHandlers(pool, auditLogger)
 	var seedH *SeedHandlers
 	if pool != nil && h != nil {
 		seedH = NewSeedHandlers(pool, mcpServer.Tools())

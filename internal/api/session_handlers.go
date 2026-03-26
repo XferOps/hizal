@@ -566,6 +566,9 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 	args := []any{}
 	idx := 1
 
+	// SECURITY: Column names are hardcoded strings, not derived from user input.
+	// User input only controls which fields are present (non-nil) and their values.
+	// Values are passed as parameterized arguments ($1, $2, etc.), preventing SQL injection.
 	if body.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", idx))
 		args = append(args, *body.Name)

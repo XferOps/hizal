@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -12,11 +13,12 @@ import (
 )
 
 type OrgHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewOrgHandlers(pool *pgxpool.Pool) *OrgHandlers {
-	return &OrgHandlers{pool: pool}
+func NewOrgHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *OrgHandlers {
+	return &OrgHandlers{pool: pool, auditLogger: auditLogger}
 }
 
 // requireOrgRole checks the current JWT user's role in an org and returns error if insufficient.
@@ -242,6 +244,11 @@ func (h *OrgHandlers) GetOrg(w http.ResponseWriter, r *http.Request) {
 // PATCH /v1/orgs/:id
 func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	orgID := chi.URLParam(r, "id")
+	actor, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
 	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 		return
@@ -252,7 +259,7 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 		Slug *string `json:"slug"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
-		writeJSONDecodeError(w, err, "invalid request body")
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
 		return
 	}
 	if body.Name == nil && body.Slug == nil {
@@ -266,6 +273,14 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	if body.Slug != nil && *body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "slug cannot be empty")
 		return
+	}
+
+	metadata := map[string]any{}
+	if body.Name != nil {
+		metadata["new_name"] = *body.Name
+	}
+	if body.Slug != nil {
+		metadata["new_slug"] = *body.Slug
 	}
 
 	var org models.Org
@@ -286,6 +301,20 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      actor.ID,
+			ActorEmail:   &actor.Email,
+			Action:       "ORG_SETTINGS_CHANGED",
+			ResourceType: strPtr("org"),
+			ResourceID:   &orgID,
+			Metadata:     metadata,
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"id":   org.ID,
 		"name": org.Name,
@@ -296,6 +325,11 @@ func (h *OrgHandlers) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 // POST /v1/orgs/:id/members — invite user by email
 func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 	orgID := chi.URLParam(r, "id")
+	actor, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
 	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 		return
@@ -321,7 +355,6 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find user by email
 	var user models.User
 	err := h.pool.QueryRow(r.Context(), `SELECT id, email FROM users WHERE email = $1`, body.Email).Scan(&user.ID, &user.Email)
 	if err != nil {
@@ -342,6 +375,19 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      actor.ID,
+			ActorEmail:   &actor.Email,
+			Action:       "ORG_MEMBER_ADDED",
+			ResourceType: strPtr("user"),
+			ResourceID:   &user.ID,
+			Metadata:     map[string]any{"role": body.Role, "invited_email": body.Email},
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"user_id": user.ID,
 		"org_id":  orgID,
@@ -354,6 +400,11 @@ func (h *OrgHandlers) InviteMember(w http.ResponseWriter, r *http.Request) {
 func (h *OrgHandlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	orgID := chi.URLParam(r, "id")
 	targetUserID := chi.URLParam(r, "userId")
+	actor, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
 
 	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
@@ -367,6 +418,19 @@ func (h *OrgHandlers) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      actor.ID,
+			ActorEmail:   &actor.Email,
+			Action:       "ORG_MEMBER_REMOVED",
+			ResourceType: strPtr("user"),
+			ResourceID:   &targetUserID,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 

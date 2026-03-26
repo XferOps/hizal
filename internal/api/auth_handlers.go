@@ -6,19 +6,22 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/XferOps/hizal/internal/auth"
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
 const (
@@ -34,8 +37,19 @@ func (e *passwordValidationError) Error() string {
 	return e.message
 }
 
-func NewAuthHandlers(pool *pgxpool.Pool) *AuthHandlers {
-	return &AuthHandlers{pool: pool}
+func NewAuthHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *AuthHandlers {
+	return &AuthHandlers{pool: pool, auditLogger: auditLogger}
+}
+
+func getClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip = xff
+	}
+	return ip
 }
 
 func validatePassword(password string) error {
@@ -279,17 +293,43 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ip := getClientIP(r)
+	userAgent := r.Header.Get("User-Agent")
+
 	var user models.User
 	var hash string
 	err := h.pool.QueryRow(r.Context(), `
 		SELECT id, email, name, COALESCE(password_hash, '') FROM users WHERE email = $1
 	`, body.Email).Scan(&user.ID, &user.Email, &user.Name, &hash)
 	if err != nil || hash == "" {
+		if h.auditLogger != nil {
+			h.auditLogger.Log(r.Context(), audit.Entry{
+				OrgID:      "",
+				ActorType:  audit.ActorTypeUser,
+				ActorID:    "",
+				Action:     "LOGIN_FAILED",
+				Metadata:   map[string]any{"email": body.Email, "reason": "user_not_found"},
+				IP:         &ip,
+				UserAgent:  &userAgent,
+			})
+		}
 		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid email or password")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)); err != nil {
+		if h.auditLogger != nil {
+			h.auditLogger.Log(r.Context(), audit.Entry{
+				OrgID:      "",
+				ActorType:  audit.ActorTypeUser,
+				ActorID:    user.ID,
+				ActorEmail: &user.Email,
+				Action:     "LOGIN_FAILED",
+				Metadata:   map[string]any{"reason": "invalid_password"},
+				IP:         &ip,
+				UserAgent:  &userAgent,
+			})
+		}
 		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid email or password")
 		return
 	}
@@ -298,6 +338,18 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeInternalError(r, w, "JWT_FAILED", err)
 		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:      "",
+			ActorType:  audit.ActorTypeUser,
+			ActorID:    user.ID,
+			ActorEmail: &user.Email,
+			Action:     "LOGIN_SUCCESS",
+			IP:         &ip,
+			UserAgent:  &userAgent,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

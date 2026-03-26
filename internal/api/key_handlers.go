@@ -5,17 +5,23 @@ import (
 	"time"
 
 	"github.com/XferOps/hizal/internal/auth"
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type KeyHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewKeyHandlers(pool *pgxpool.Pool) *KeyHandlers {
-	return &KeyHandlers{pool: pool}
+func NewKeyHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *KeyHandlers {
+	return &KeyHandlers{pool: pool, auditLogger: auditLogger}
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 // POST /v1/keys (JWT auth)
@@ -74,6 +80,19 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeInternalError(r, w, "DB_ERROR", err)
 		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        body.OrgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "API_KEY_CREATED",
+			ResourceType: strPtr("api_key"),
+			ResourceID:   &key.ID,
+			Metadata:     map[string]any{"key_name": body.Name, "scope_all": body.ScopeAll},
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -218,6 +237,13 @@ func (h *KeyHandlers) DeleteKey(w http.ResponseWriter, r *http.Request) {
 	}
 	keyID := chi.URLParam(r, "id")
 
+	var orgID string
+	err := h.pool.QueryRow(r.Context(), `SELECT org_id FROM api_keys WHERE id = $1`, keyID).Scan(&orgID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "key not found")
+		return
+	}
+
 	tag, err := h.pool.Exec(r.Context(), `
 		DELETE FROM api_keys WHERE id = $1 AND user_id = $2
 	`, keyID, user.ID)
@@ -229,5 +255,18 @@ func (h *KeyHandlers) DeleteKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "key not found or not yours")
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "API_KEY_DELETED",
+			ResourceType: strPtr("api_key"),
+			ResourceID:   &keyID,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
