@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -596,13 +597,36 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		`, personalOrgID).Scan(&lockedProjectCount)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":                   dbUser.ID,
-		"email":                dbUser.Email,
-		"name":                 dbUser.Name,
-		"orgs":                 orgs,
-		"personal_org_id":      personalOrgID,
-		"tier":                 personalTier,
-		"locked_project_count": lockedProjectCount,
+	// Check if user is platform admin
+	var isPlatformAdmin *bool
+	adminIDs := parseAdminIDs(os.Getenv("ADMIN_IDS"))
+	for _, id := range adminIDs {
+		if id == dbUser.ID {
+			trueVal := true
+			isPlatformAdmin = &trueVal
+			break
+		}
+	}
+
+	type meResponse struct {
+		ID                   string    `json:"id"`
+		Email                string    `json:"email"`
+		Name                 string    `json:"name"`
+		Orgs                 []orgItem `json:"orgs"`
+		PersonalOrgID        string    `json:"personal_org_id,omitempty"`
+		Tier                 string    `json:"tier,omitempty"`
+		LockedProjectCount   int       `json:"locked_project_count"`
+		IsPlatformAdmin      *bool     `json:"is_platform_admin,omitempty"`
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{
+		ID:                   dbUser.ID,
+		Email:                dbUser.Email,
+		Name:                 dbUser.Name,
+		Orgs:                 orgs,
+		PersonalOrgID:        personalOrgID,
+		Tier:                 personalTier,
+		LockedProjectCount:   lockedProjectCount,
+		IsPlatformAdmin:      isPlatformAdmin,
 	})
 }
