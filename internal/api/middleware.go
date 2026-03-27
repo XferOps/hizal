@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -243,4 +244,34 @@ func isValidUUID(s string) bool {
 		}
 	}
 	return true
+}
+
+func PlatformAdminOnly() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := JWTUserFrom(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "authentication required")
+				return
+			}
+			adminIDs := parseAdminIDs(os.Getenv("ADMIN_IDS"))
+			for _, id := range adminIDs {
+				if id == user.ID {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "platform admin access required")
+		})
+	}
+}
+
+func parseAdminIDs(raw string) []string {
+	var ids []string
+	for _, s := range strings.Split(raw, ",") {
+		if id := strings.TrimSpace(s); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
