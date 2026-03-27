@@ -1,0 +1,1 @@
+ALTER TABLE session_lifecycles ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT false;
