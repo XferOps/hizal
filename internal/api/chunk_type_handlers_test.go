@@ -148,6 +148,122 @@ func TestCreateAndListChunkTypes(t *testing.T) {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusConflict, rr.Body.String())
 		}
 	})
+
+	t.Run("UpdateChunkType updates inject audience without DB error", func(t *testing.T) {
+		typeID := uuid.NewString()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO chunk_types (id, org_id, name, slug, description, default_scope, consolidation_behavior)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, typeID, orgID, "Research Draft", "research-draft", "Original description", "PROJECT", "SURFACE"); err != nil {
+			t.Fatalf("insert chunk type: %v", err)
+		}
+
+		body := `{"name":"Research","description":"Investigation findings and exploration notes","default_scope":"PROJECT","default_inject_audience":{"rules":[{"agent_types":["CODER"],"focus_tags":["backend","auth"]},{"lifecycle_types":["review"],"agent_tags":["urgent"]}]},"consolidation_behavior":"SURFACE"}`
+		req := httptest.NewRequest(http.MethodPatch, "/v1/chunk-types/"+typeID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", typeID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
+
+		rr := httptest.NewRecorder()
+		NewChunkTypeHandlers(pool).UpdateChunkType(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+		}
+
+		var updated struct {
+			Name                  string                 `json:"name"`
+			Description           string                 `json:"description"`
+			DefaultInjectAudience map[string]interface{} `json:"default_inject_audience"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &updated); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+
+		if updated.Name != "Research" {
+			t.Fatalf("name = %q, want %q", updated.Name, "Research")
+		}
+		if updated.DefaultInjectAudience == nil {
+			t.Fatal("default_inject_audience = nil, want rules object")
+		}
+		if updated.Description != "Investigation findings and exploration notes" {
+			t.Fatalf("description = %q, want %q", updated.Description, "Investigation findings and exploration notes")
+		}
+		rules, ok := updated.DefaultInjectAudience["rules"].([]interface{})
+		if !ok || len(rules) != 2 {
+			t.Fatalf("default_inject_audience.rules = %#v, want 2 rules", updated.DefaultInjectAudience["rules"])
+		}
+	})
+
+	t.Run("UpdateChunkType updates slug", func(t *testing.T) {
+		typeID := uuid.NewString()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO chunk_types (id, org_id, name, slug, description, default_scope, consolidation_behavior)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, typeID, orgID, "Research Notes", "research-notes", "Original description", "PROJECT", "SURFACE"); err != nil {
+			t.Fatalf("insert chunk type: %v", err)
+		}
+
+		body := `{"slug":"RESEARCH"}`
+		req := httptest.NewRequest(http.MethodPatch, "/v1/chunk-types/"+typeID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", typeID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
+
+		rr := httptest.NewRecorder()
+		NewChunkTypeHandlers(pool).UpdateChunkType(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusOK, rr.Body.String())
+		}
+
+		var updated struct {
+			Slug string `json:"slug"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &updated); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if updated.Slug != "RESEARCH" {
+			t.Fatalf("slug = %q, want %q", updated.Slug, "RESEARCH")
+		}
+	})
+
+	t.Run("UpdateChunkType rejects duplicate slug", func(t *testing.T) {
+		firstTypeID := uuid.NewString()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO chunk_types (id, org_id, name, slug, description, default_scope, consolidation_behavior)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, firstTypeID, orgID, "Research", "research", "First", "PROJECT", "SURFACE"); err != nil {
+			t.Fatalf("insert first chunk type: %v", err)
+		}
+
+		secondTypeID := uuid.NewString()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO chunk_types (id, org_id, name, slug, description, default_scope, consolidation_behavior)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, secondTypeID, orgID, "Investigation", "investigation", "Second", "PROJECT", "SURFACE"); err != nil {
+			t.Fatalf("insert second chunk type: %v", err)
+		}
+
+		body := `{"slug":"research"}`
+		req := httptest.NewRequest(http.MethodPatch, "/v1/chunk-types/"+secondTypeID, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		routeCtx := chi.NewRouteContext()
+		routeCtx.URLParams.Add("id", secondTypeID)
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
+		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
+
+		rr := httptest.NewRecorder()
+		NewChunkTypeHandlers(pool).UpdateChunkType(rr, req)
+
+		if rr.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusConflict, rr.Body.String())
+		}
+	})
 }
 
 func TestGlobalChunkTypesCannotBeModified(t *testing.T) {
