@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"net/http"
 	"time"
 
@@ -16,42 +17,58 @@ func NewAdminHandlers(pool *pgxpool.Pool) *AdminHandlers {
 }
 
 type AdminOrg struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	OwnerEmail  string    `json:"owner_email"`
-	CreatedAt   time.Time `json:"created_at"`
-	Tier        string    `json:"tier"`
-	ProjectCount int     `json:"project_count"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Slug         string    `json:"slug"`
+	OwnerEmail   *string   `json:"owner_email"`
+	CreatedAt    time.Time `json:"created_at"`
+	Tier         string    `json:"tier"`
+	ProjectCount int       `json:"project_count"`
 }
 
 type AdminUser struct {
-	ID         string    `json:"id"`
-	Email      string    `json:"email"`
-	Name       string    `json:"name"`
-	CreatedAt  time.Time `json:"created_at"`
-	OrgCount   int       `json:"org_count"`
+	ID          string     `json:"id"`
+	Email       string     `json:"email"`
+	Name        string     `json:"name"`
+	CreatedAt   time.Time  `json:"created_at"`
+	OrgCount    int        `json:"org_count"`
 	LastLoginAt *time.Time `json:"last_login_at"`
 }
 
 type AdminProject struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	OrgID       string    `json:"org_id"`
-	OrgName     string    `json:"org_name"`
-	ChunkCount  int       `json:"chunk_count"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Slug       string    `json:"slug"`
+	OrgID      string    `json:"org_id"`
+	OrgName    string    `json:"org_name"`
+	ChunkCount int       `json:"chunk_count"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type AdminKey struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	CreatedAt   time.Time `json:"created_at"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	UserEmail   string    `json:"user_email"`
-	OrgID       *string   `json:"org_id"`
-	OrgName     *string   `json:"org_name"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	UserEmail  *string    `json:"user_email"`
+	OrgID      *string    `json:"org_id"`
+	OrgName    *string    `json:"org_name"`
+}
+
+func nullableStringPtr(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+
+	return &value.String
+}
+
+func nullableTimePtr(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+
+	return &value.Time
 }
 
 func (h *AdminHandlers) ListOrgs(w http.ResponseWriter, r *http.Request) {
@@ -78,14 +95,16 @@ func (h *AdminHandlers) ListOrgs(w http.ResponseWriter, r *http.Request) {
 	var orgs []AdminOrg
 	for rows.Next() {
 		var org AdminOrg
+		var ownerEmail sql.NullString
 		if err := rows.Scan(
 			&org.ID, &org.Name, &org.Slug,
-			&org.OwnerEmail, &org.CreatedAt,
+			&ownerEmail, &org.CreatedAt,
 			&org.Tier, &org.ProjectCount,
 		); err != nil {
 			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
+		org.OwnerEmail = nullableStringPtr(ownerEmail)
 		orgs = append(orgs, org)
 	}
 	writeJSON(w, http.StatusOK, orgs)
@@ -112,13 +131,15 @@ func (h *AdminHandlers) ListUsers(w http.ResponseWriter, r *http.Request) {
 	var users []AdminUser
 	for rows.Next() {
 		var user AdminUser
+		var lastLoginAt sql.NullTime
 		if err := rows.Scan(
 			&user.ID, &user.Email, &user.Name, &user.CreatedAt,
-			&user.OrgCount, &user.LastLoginAt,
+			&user.OrgCount, &lastLoginAt,
 		); err != nil {
 			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
+		user.LastLoginAt = nullableTimePtr(lastLoginAt)
 		users = append(users, user)
 	}
 	writeJSON(w, http.StatusOK, users)
@@ -178,13 +199,21 @@ func (h *AdminHandlers) ListKeys(w http.ResponseWriter, r *http.Request) {
 	var keys []AdminKey
 	for rows.Next() {
 		var key AdminKey
+		var lastUsedAt sql.NullTime
+		var userEmail sql.NullString
+		var orgID sql.NullString
+		var orgName sql.NullString
 		if err := rows.Scan(
-			&key.ID, &key.Name, &key.CreatedAt, &key.LastUsedAt,
-			&key.UserEmail, &key.OrgID, &key.OrgName,
+			&key.ID, &key.Name, &key.CreatedAt, &lastUsedAt,
+			&userEmail, &orgID, &orgName,
 		); err != nil {
 			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
+		key.LastUsedAt = nullableTimePtr(lastUsedAt)
+		key.UserEmail = nullableStringPtr(userEmail)
+		key.OrgID = nullableStringPtr(orgID)
+		key.OrgName = nullableStringPtr(orgName)
 		keys = append(keys, key)
 	}
 	writeJSON(w, http.StatusOK, keys)
