@@ -73,6 +73,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	agentTypeH := NewAgentTypeHandlers(pool)
 	chunkTypeH := NewChunkTypeHandlers(pool)
 	reviewH := NewReviewHandlers(pool)
+	adminH := NewAdminHandlers(pool)
 
 	pubH := NewPublicHandlers(pool, embed)
 
@@ -263,6 +264,16 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.With(APIKeyAuth(pool)).Get("/api/v1/agent-onboarding", agentOnboardingH.Get)
 	r.With(SkillAuth(pool)).Get("/api/v1/skills", skillH.List)
 	r.With(SkillAuth(pool)).Get("/api/v1/skills/{id}", skillH.Get)
+
+	// Platform admin routes
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(JWTAuth())
+		r.Use(PlatformAdminOnly())
+		r.Get("/orgs", adminH.ListOrgs)
+		r.Get("/users", adminH.ListUsers)
+		r.Get("/projects", adminH.ListProjects)
+		r.Get("/keys", adminH.ListKeys)
+	})
 
 	// Usage analytics endpoint (requires auth, scoped to org)
 	r.With(APIKeyAuth(pool)).Get("/v1/usage", func(w http.ResponseWriter, r *http.Request) {
