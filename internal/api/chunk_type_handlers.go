@@ -178,6 +178,7 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 
 	var body struct {
 		Name                  *string          `json:"name"`
+		Slug                  *string          `json:"slug"`
 		Description           *string          `json:"description"`
 		DefaultScope          *string          `json:"default_scope"`
 		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
@@ -190,7 +191,7 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 
 	setClauses := []string{}
 	args := []any{}
-	idx := 2
+	idx := 1
 
 	// SECURITY: Column names are hardcoded strings, not derived from user input.
 	// User input only controls which fields are present (non-nil) and their values.
@@ -198,6 +199,11 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 	if body.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", idx))
 		args = append(args, *body.Name)
+		idx++
+	}
+	if body.Slug != nil {
+		setClauses = append(setClauses, fmt.Sprintf("slug = $%d", idx))
+		args = append(args, *body.Slug)
 		idx++
 	}
 	if body.Description != nil {
@@ -227,6 +233,10 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 		query := fmt.Sprintf("UPDATE chunk_types SET %s WHERE id = $%d", joinStrings(setClauses, ", "), idx)
 		_, err = h.pool.Exec(r.Context(), query, args...)
 		if err != nil {
+			if isUniqueViolation(err) {
+				writeError(w, http.StatusConflict, "SLUG_TAKEN", "a chunk type with that slug already exists in this org")
+				return
+			}
 			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
