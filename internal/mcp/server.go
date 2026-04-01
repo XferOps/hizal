@@ -576,7 +576,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result, err := s.dispatchTool(ctx, r, projectID, params.Name, params.Arguments)
 		if err != nil {
 			log.Printf("tool %s error: %v", params.Name, err)
-			resp.Error = &rpcError{Code: -32603, Message: "internal error"}
+			// ActiveSessionError carries structured data the caller needs to act on.
+			// Return it as an MCP tool-level error (isError:true in result content)
+			// so agents can read session_id + expires_at and call resume_session,
+			// rather than seeing an opaque JSON-RPC internal error.
+			var activeErr *ActiveSessionError
+			if errors.As(err, &activeErr) {
+				resp.Result = map[string]interface{}{
+					"content": []map[string]interface{}{
+						{"type": "text", "text": mustJSON(activeErr)},
+					},
+					"isError": true,
+				}
+			} else {
+				resp.Error = &rpcError{Code: -32603, Message: "internal error"}
+			}
 		} else {
 			resp.Result = map[string]interface{}{
 				"content": []map[string]interface{}{
