@@ -3,12 +3,15 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/XferOps/hizal/internal/models"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 )
 
@@ -80,6 +83,22 @@ type SessionChunkSummary struct {
 	QueryKey string `json:"query_key"`
 	Title    string `json:"title"`
 	Scope    string `json:"scope"`
+}
+
+// ActiveSessionError is returned by StartSession when the agent already has an
+// active session. It carries the existing session's ID and expiry so the caller
+// can immediately resume or inspect rather than guessing what went wrong.
+type ActiveSessionError struct {
+	SessionID string    `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Message   string    `json:"message"`
+}
+
+func (e *ActiveSessionError) Error() string {
+	return fmt.Sprintf(
+		"agent already has an active session (id=%s, expires_at=%s) — call resume_session to extend TTL or get_active_session to inspect",
+		e.SessionID, e.ExpiresAt.Format(time.RFC3339),
+	)
 }
 
 // ---- Helpers ----
@@ -369,7 +388,27 @@ func (t *Tools) StartSession(ctx context.Context, orgID string, agentID string, 
 		RETURNING id
 	`, in.AgentID, in.ProjectID, orgID, lc.ID, expiresAt).Scan(&sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("agent already has an active session — call resume_session instead: %w", err)
+		// Unique constraint violation means the agent already has an active session.
+		// Return structured info so the caller can resume or inspect instead of
+		// seeing an opaque internal error.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			var existingID string
+			var existingExpiry time.Time
+			qerr := t.pool.QueryRow(ctx, `
+				SELECT id, expires_at FROM sessions
+				WHERE agent_id = $1 AND status = 'active'
+				LIMIT 1
+			`, in.AgentID).Scan(&existingID, &existingExpiry)
+			if qerr == nil {
+				return nil, &ActiveSessionError{
+					SessionID: existingID,
+					ExpiresAt: existingExpiry,
+					Message:   "agent already has an active session — call resume_session to extend TTL or get_active_session to retrieve session info",
+				}
+			}
+		}
+		return nil, fmt.Errorf("start_session: insert failed: %w", err)
 	}
 
 	typeFilters := t.resolveAgentInjectFilters(ctx, agentID)
