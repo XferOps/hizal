@@ -68,7 +68,7 @@ func TestCreateAgentWithTypeID(t *testing.T) {
 		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
 
 		rr := httptest.NewRecorder()
-		NewAgentHandlers(pool).CreateAgent(rr, req)
+		NewAgentHandlers(pool, nil).CreateAgent(rr, req)
 
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusCreated, rr.Body.String())
@@ -101,7 +101,7 @@ func TestCreateAgentWithTypeID(t *testing.T) {
 		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
 
 		rr := httptest.NewRecorder()
-		NewAgentHandlers(pool).CreateAgent(rr, req)
+		NewAgentHandlers(pool, nil).CreateAgent(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -118,7 +118,7 @@ func TestCreateAgentWithTypeID(t *testing.T) {
 		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
 
 		rr := httptest.NewRecorder()
-		NewAgentHandlers(pool).CreateAgent(rr, req)
+		NewAgentHandlers(pool, nil).CreateAgent(rr, req)
 
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusCreated, rr.Body.String())
@@ -151,7 +151,7 @@ func TestCreateAgentWithTypeID(t *testing.T) {
 		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
 
 		rr := httptest.NewRecorder()
-		NewAgentHandlers(pool).CreateAgent(rr, req)
+		NewAgentHandlers(pool, nil).CreateAgent(rr, req)
 
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusBadRequest, rr.Body.String())
@@ -168,7 +168,7 @@ func TestCreateAgentWithTypeID(t *testing.T) {
 		req = req.WithContext(withJWTUser(req.Context(), JWTUser{ID: userID, Email: email}))
 
 		rr := httptest.NewRecorder()
-		NewAgentHandlers(pool).CreateAgent(rr, req)
+		NewAgentHandlers(pool, nil).CreateAgent(rr, req)
 
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want %d body=%s", rr.Code, http.StatusCreated, rr.Body.String())

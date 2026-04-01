@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/email"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -21,8 +21,9 @@ import (
 const inviteTTL = 48 * time.Hour
 
 type InviteHandlers struct {
-	pool  *pgxpool.Pool
-	email *email.Client // nil in local dev (EMAIL_FROM unset)
+	pool        *pgxpool.Pool
+	email       *email.Client
+	auditLogger *audit.AuditLogger
 }
 
 func NewInviteHandlers(ctx context.Context, pool *pgxpool.Pool) (*InviteHandlers, error) {
@@ -30,7 +31,7 @@ func NewInviteHandlers(ctx context.Context, pool *pgxpool.Pool) (*InviteHandlers
 	if err != nil {
 		return nil, fmt.Errorf("invite handlers: init email client: %w", err)
 	}
-	return &InviteHandlers{pool: pool, email: ec}, nil
+	return &InviteHandlers{pool: pool, email: ec, auditLogger: audit.New(pool)}, nil
 }
 
 // generateToken returns a 32-byte cryptographically random hex token.
@@ -68,7 +69,11 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "email is required")
+		return
+	}
+	if body.Email == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "email is required")
 		return
 	}
@@ -83,7 +88,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	// Fetch org name for email copy.
 	var orgName string
 	if err := h.pool.QueryRow(r.Context(), `SELECT name FROM orgs WHERE id = $1`, orgID).Scan(&orgName); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -98,7 +103,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 			ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
 		`, existingUserID, orgID, body.Role)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 
@@ -121,14 +126,14 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// User doesn't exist — create invite record.
 	token, err := generateToken()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "TOKEN_FAILED", err.Error())
+		writeInternalError(r, w, "TOKEN_FAILED", err)
 		return
 	}
 
@@ -139,7 +144,7 @@ func (h *InviteHandlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, inviteID, orgID, caller.ID, body.Email, body.Role, token, expiresAt)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -177,7 +182,7 @@ func (h *InviteHandlers) ListInvites(w http.ResponseWriter, r *http.Request) {
 		ORDER BY created_at DESC
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -221,7 +226,7 @@ func (h *InviteHandlers) CancelInvite(w http.ResponseWriter, r *http.Request) {
 		inviteID, orgID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -253,7 +258,7 @@ func (h *InviteHandlers) ResendInvite(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "invite not found or already accepted")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -271,7 +276,7 @@ func (h *InviteHandlers) ResendInvite(w http.ResponseWriter, r *http.Request) {
 		HTML:    html,
 		Text:    text,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "EMAIL_FAILED", err.Error())
+		writeInternalError(r, w, "EMAIL_FAILED", err)
 		return
 	}
 
@@ -291,8 +296,8 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Token == "" || body.Name == "" || body.Password == "" {
@@ -313,19 +318,22 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "invite token is invalid or has expired")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// Register the user (reuse auth handler logic inline).
-	authH := NewAuthHandlers(h.pool)
+	authH := NewAuthHandlers(h.pool, h.auditLogger)
 	userID, jwtToken, err := authH.registerUser(r.Context(), inviteEmail, body.Password, body.Name)
 	if err != nil {
+		if writePasswordValidationError(w, err) {
+			return
+		}
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "an account with this email already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "REGISTER_FAILED", err.Error())
+		writeInternalError(r, w, "REGISTER_FAILED", err)
 		return
 	}
 
@@ -335,7 +343,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 		ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role
 	`, userID, orgID, role)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 

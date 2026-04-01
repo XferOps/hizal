@@ -2,6 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -23,6 +28,28 @@ type JWTUser struct {
 	Email string
 }
 
+var jwtStartupFatalf = log.Fatalf
+
+func jwtSecretValidationError() error {
+	env := os.Getenv("ENV")
+	if env == "development" {
+		return nil
+	}
+	if os.Getenv("JWT_SECRET") != "" {
+		return nil
+	}
+	if env == "" {
+		env = "unset"
+	}
+	return fmt.Errorf("JWT_SECRET must be set when ENV is %q", env)
+}
+
+func requireJWTSecretForStartup() {
+	if err := jwtSecretValidationError(); err != nil {
+		jwtStartupFatalf("invalid JWT configuration: %v", err)
+	}
+}
+
 func jwtSecret() []byte {
 	s := os.Getenv("JWT_SECRET")
 	if s == "" {
@@ -32,13 +59,17 @@ func jwtSecret() []byte {
 }
 
 func SignJWT(userID, email string) (string, error) {
+	return SignJWTWithExpiry(userID, email, 15*time.Minute)
+}
+
+func SignJWTWithExpiry(userID, email string, expiry time.Duration) (string, error) {
 	now := time.Now()
 	claims := JWTClaims{
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
-			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
@@ -91,4 +122,19 @@ func JWTAuth() func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(withJWTUser(r.Context(), user)))
 		})
 	}
+}
+
+// GenerateRefreshToken generates a cryptographically secure refresh token.
+func GenerateRefreshToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// HashRefreshToken hashes a refresh token using SHA-256 for secure storage.
+func HashRefreshToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
 }

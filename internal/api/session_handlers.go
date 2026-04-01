@@ -58,12 +58,12 @@ func (h *SessionHandlers) resolveOrgIDFromSession(r *http.Request, sessionID str
 // agent_id is required in the REST body (JWT/human path — caller specifies which agent).
 func (h *SessionHandlers) StartSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		AgentID      string  `json:"agent_id"`
-		ProjectID    *string `json:"project_id,omitempty"`
+		AgentID       string  `json:"agent_id"`
+		ProjectID     *string `json:"project_id,omitempty"`
 		LifecycleSlug *string `json:"lifecycle_slug,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.AgentID == "" {
@@ -111,8 +111,8 @@ func (h *SessionHandlers) RegisterFocus(w http.ResponseWriter, r *http.Request) 
 		Task string   `json:"task"`
 		Tags []string `json:"tags,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	orgID, err := h.resolveOrgIDFromSession(r, sessionID)
@@ -177,7 +177,7 @@ func (h *SessionHandlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		writeInternalError(r, w, "QUERY_FAILED", err)
 		return
 	}
 	defer rows.Close()
@@ -218,7 +218,7 @@ func (h *SessionHandlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 			&s.AgentName, &s.ProjectName, &s.LifecycleSlug,
 		)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "SCAN_FAILED", err.Error())
+			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
 		s.ExpiresAt = formatTime(expiresAt)
@@ -232,7 +232,7 @@ func (h *SessionHandlers) ListSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
-		writeError(w, http.StatusInternalServerError, "ROWS_ERR", err.Error())
+		writeInternalError(r, w, "ROWS_ERR", err)
 		return
 	}
 
@@ -270,18 +270,18 @@ func (h *SessionHandlers) GetSessionConsolidationChunks(w http.ResponseWriter, r
 		ORDER BY cc.created_at ASC
 	`, sessionID, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		writeInternalError(r, w, "QUERY_FAILED", err)
 		return
 	}
 	defer rows.Close()
 
 	type chunkSummary struct {
-		ID        string  `json:"id"`
-		QueryKey  string  `json:"query_key"`
-		Title     string  `json:"title"`
-		Scope     string  `json:"scope"`
-		ChunkType string  `json:"chunk_type"`
-		CreatedAt string  `json:"created_at"`
+		ID        string `json:"id"`
+		QueryKey  string `json:"query_key"`
+		Title     string `json:"title"`
+		Scope     string `json:"scope"`
+		ChunkType string `json:"chunk_type"`
+		CreatedAt string `json:"created_at"`
 	}
 
 	chunks := []chunkSummary{}
@@ -289,7 +289,7 @@ func (h *SessionHandlers) GetSessionConsolidationChunks(w http.ResponseWriter, r
 		var c chunkSummary
 		var createdAt interface{}
 		if err := rows.Scan(&c.ID, &c.QueryKey, &c.Title, &c.Scope, &c.ChunkType, &createdAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "SCAN_FAILED", err.Error())
+			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
 		c.CreatedAt = formatTime(createdAt)
@@ -316,13 +316,13 @@ func (h *SessionHandlers) ConsolidateSession(w http.ResponseWriter, r *http.Requ
 
 	var body struct {
 		Actions []struct {
-			ChunkID           string `json:"chunk_id"`
-			Action            string `json:"action"` // keep | promote | discard
-			PromoteToPrinciple bool  `json:"promote_to_principle,omitempty"`
+			ChunkID            string `json:"chunk_id"`
+			Action             string `json:"action"` // keep | promote | discard
+			PromoteToPrinciple bool   `json:"promote_to_principle,omitempty"`
 		} `json:"actions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 
@@ -361,14 +361,14 @@ func (h *SessionHandlers) ConsolidateSession(w http.ResponseWriter, r *http.Requ
 				`, a.ChunkID, projectID)
 			}
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "PROMOTE_FAILED", err.Error())
+				writeInternalError(r, w, "PROMOTE_FAILED", err)
 				return
 			}
 			promoted++
 		case "discard":
 			_, err = h.pool.Exec(r.Context(), `DELETE FROM context_chunks WHERE id = $1`, a.ChunkID)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "DISCARD_FAILED", err.Error())
+				writeInternalError(r, w, "DISCARD_FAILED", err)
 				return
 			}
 			discarded++
@@ -406,7 +406,11 @@ func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.
 		IsDefault   bool                   `json:"is_default"`
 		Config      map[string]interface{} `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -442,13 +446,13 @@ func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.
 	configJSON, _ := json.Marshal(body.Config)
 
 	var lc struct {
-		ID        string  `json:"id"`
-		OrgID     *string `json:"org_id"`
-		Name      string  `json:"name"`
-		Slug      string  `json:"slug"`
-		IsDefault bool    `json:"is_default"`
+		ID        string      `json:"id"`
+		OrgID     *string     `json:"org_id"`
+		Name      string      `json:"name"`
+		Slug      string      `json:"slug"`
+		IsDefault bool        `json:"is_default"`
 		Config    interface{} `json:"config"`
-		IsGlobal  bool    `json:"is_global"`
+		IsGlobal  bool        `json:"is_global"`
 	}
 	err := h.pool.QueryRow(r.Context(), `
 		INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config)
@@ -462,7 +466,7 @@ func (h *SessionHandlers) CreateSessionLifecycle(w http.ResponseWriter, r *http.
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "a session lifecycle with that slug already exists in this org")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -532,13 +536,13 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 	}
 
 	var body struct {
-		Name        *string                 `json:"name"`
-		Description *string                 `json:"description"`
-		IsDefault   *bool                   `json:"is_default"`
-		Config      map[string]interface{}   `json:"config"`
+		Name        *string                `json:"name"`
+		Description *string                `json:"description"`
+		IsDefault   *bool                  `json:"is_default"`
+		Config      map[string]interface{} `json:"config"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 
@@ -562,6 +566,9 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 	args := []any{}
 	idx := 1
 
+	// SECURITY: Column names are hardcoded strings, not derived from user input.
+	// User input only controls which fields are present (non-nil) and their values.
+	// Values are passed as parameterized arguments ($1, $2, etc.), preventing SQL injection.
 	if body.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", idx))
 		args = append(args, *body.Name)
@@ -590,7 +597,7 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 		query := fmt.Sprintf("UPDATE session_lifecycles SET %s WHERE id = $%d", joinStrings(setClauses, ", "), idx)
 		_, err = h.pool.Exec(r.Context(), query, args...)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 	}
@@ -610,7 +617,7 @@ func (h *SessionHandlers) UpdateSessionLifecycle(w http.ResponseWriter, r *http.
 		FROM session_lifecycles WHERE id = $1
 	`, lcID).Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, new(time.Time), new(time.Time))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -645,7 +652,7 @@ func (h *SessionHandlers) DeleteSessionLifecycle(w http.ResponseWriter, r *http.
 
 	_, err = h.pool.Exec(r.Context(), `DELETE FROM session_lifecycles WHERE id = $1`, lcID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -657,25 +664,42 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 	orgID := chi.URLParam(r, "id")
 
 	rows, err := h.pool.Query(r.Context(), `
-		SELECT id, org_id, name, slug, is_default, config, created_at, updated_at
-		FROM session_lifecycles
-		WHERE org_id = $1 OR org_id IS NULL
-		ORDER BY org_id NULLS FIRST, name
+		SELECT
+			sl.id, sl.org_id, sl.name, sl.slug, sl.is_default, sl.description,
+			sl.config, sl.hidden, sl.created_at, sl.updated_at,
+			g.id AS overrides_global_id
+		FROM session_lifecycles sl
+		LEFT JOIN session_lifecycles g
+			ON g.slug = sl.slug AND g.org_id IS NULL AND sl.org_id = $1
+		WHERE (
+			-- org shadow rows (not hidden)
+			(sl.org_id = $1 AND sl.hidden = false)
+			OR
+			-- globals with no org shadow
+			(sl.org_id IS NULL AND NOT EXISTS (
+				SELECT 1 FROM session_lifecycles shadow
+				WHERE shadow.org_id = $1 AND shadow.slug = sl.slug
+			))
+		)
+		ORDER BY sl.org_id NULLS FIRST, sl.name
 	`, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+		writeInternalError(r, w, "QUERY_FAILED", err)
 		return
 	}
 	defer rows.Close()
 
 	type lcRow struct {
-		ID        string      `json:"id"`
-		OrgID     *string     `json:"org_id,omitempty"`
-		Name      string      `json:"name"`
-		Slug      string      `json:"slug"`
-		IsDefault bool        `json:"is_default"`
-		Config    interface{} `json:"config"`
-		IsGlobal  bool        `json:"is_global"`
+		ID              string      `json:"id"`
+		OrgID           *string     `json:"org_id,omitempty"`
+		Name            string      `json:"name"`
+		Slug            string      `json:"slug"`
+		IsDefault       bool        `json:"is_default"`
+		Description     *string     `json:"description,omitempty"`
+		Config          interface{} `json:"config"`
+		Hidden          bool        `json:"hidden"`
+		IsGlobal        bool        `json:"is_global"`
+		OverridesGlobal *string     `json:"overrides_global,omitempty"`
 	}
 
 	lifecycles := []lcRow{}
@@ -683,11 +707,15 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 		var lc lcRow
 		var configRaw []byte
 		var createdAt, updatedAt interface{}
-		if err := rows.Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &configRaw, &createdAt, &updatedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "SCAN_FAILED", err.Error())
+		var overridesGlobalID *string
+		if err := rows.Scan(&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &lc.Description, &configRaw, &lc.Hidden, &createdAt, &updatedAt, &overridesGlobalID); err != nil {
+			writeInternalError(r, w, "SCAN_FAILED", err)
 			return
 		}
 		lc.IsGlobal = lc.OrgID == nil
+		if overridesGlobalID != nil {
+			lc.OverridesGlobal = overridesGlobalID
+		}
 		if err := json.Unmarshal(configRaw, &lc.Config); err != nil {
 			lc.Config = string(configRaw)
 		}
@@ -697,6 +725,141 @@ func (h *SessionHandlers) ListSessionLifecycles(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"lifecycles": lifecycles,
 	})
+}
+
+// POST /v1/orgs/:id/session-lifecycles/:slug/fork
+func (h *SessionHandlers) ForkSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "id")
+	slug := chi.URLParam(r, "slug")
+
+	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var globalID string
+	var globalName, globalSlug string
+	var globalDesc *string
+	var globalIsDefault bool
+	var globalConfig []byte
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, name, slug, description, is_default, config
+		FROM session_lifecycles WHERE org_id IS NULL AND slug = $1
+	`, slug).Scan(
+		&globalID, &globalName, &globalSlug, &globalDesc, &globalIsDefault, &globalConfig,
+	)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "global session lifecycle not found")
+		return
+	}
+
+	var existingID string
+	err = h.pool.QueryRow(r.Context(), `SELECT id FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug).Scan(&existingID)
+	if err == nil {
+		writeError(w, http.StatusConflict, "ALREADY_OVERRIDDEN", "org already has an override for this session lifecycle")
+		return
+	}
+
+	var lc struct {
+		ID        string      `json:"id"`
+		OrgID     *string     `json:"org_id,omitempty"`
+		Name      string      `json:"name"`
+		Slug      string      `json:"slug"`
+		IsDefault bool        `json:"is_default"`
+		Config    interface{} `json:"config"`
+		IsGlobal  bool        `json:"is_global"`
+	}
+	err = h.pool.QueryRow(r.Context(), `
+		INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config, hidden)
+		VALUES ($1, $2, $3, $4, $5, $6, false)
+		RETURNING id, org_id, name, slug, is_default, config, created_at, updated_at
+	`, orgID, globalName, globalSlug, globalIsDefault, nullableStr(*globalDesc), globalConfig).Scan(
+		&lc.ID, &lc.OrgID, &lc.Name, &lc.Slug, &lc.IsDefault, &globalConfig, new(time.Time), new(time.Time),
+	)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	lc.IsGlobal = false
+	_ = json.Unmarshal(globalConfig, &lc.Config)
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"lifecycle":           lc,
+		"overrides_global":   globalID,
+	})
+}
+
+// POST /v1/orgs/:id/session-lifecycles/:slug/reset?action=hide|reset
+func (h *SessionHandlers) ResetOrHideSessionLifecycle(w http.ResponseWriter, r *http.Request) {
+	orgID := chi.URLParam(r, "id")
+	slug := chi.URLParam(r, "slug")
+	action := r.URL.Query().Get("action")
+
+	if _, err := requireOrgRole(r, h.pool, orgID, "owner", "admin"); err != nil {
+		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+		return
+	}
+
+	var globalID string
+	err := h.pool.QueryRow(r.Context(), `SELECT id FROM session_lifecycles WHERE org_id IS NULL AND slug = $1`, slug).Scan(&globalID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "global session lifecycle not found")
+		return
+	}
+
+	if action == "hide" {
+		var existingID string
+		var existingHidden bool
+		err = h.pool.QueryRow(r.Context(), `SELECT id, hidden FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug).Scan(&existingID, &existingHidden)
+		if err == nil {
+			if existingHidden {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, err = h.pool.Exec(r.Context(), `UPDATE session_lifecycles SET hidden = true WHERE id = $1`, existingID)
+			if err != nil {
+				writeInternalError(r, w, "DB_ERROR", err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		var globalName, globalSlug string
+		var globalDesc *string
+		var globalIsDefault bool
+		var globalConfig []byte
+		err = h.pool.QueryRow(r.Context(), `
+			SELECT name, slug, description, is_default, config
+			FROM session_lifecycles WHERE org_id IS NULL AND slug = $1
+		`, slug).Scan(
+			&globalName, &globalSlug, &globalDesc, &globalIsDefault, &globalConfig,
+		)
+		if err != nil {
+			writeInternalError(r, w, "DB_ERROR", err)
+			return
+		}
+
+		_, err = h.pool.Exec(r.Context(), `
+			INSERT INTO session_lifecycles (org_id, name, slug, is_default, description, config, hidden)
+			VALUES ($1, $2, $3, $4, $5, $6, true)
+		`, orgID, globalName, globalSlug, globalIsDefault, nullableStr(*globalDesc), globalConfig)
+		if err != nil {
+			writeInternalError(r, w, "DB_ERROR", err)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	_, err = h.pool.Exec(r.Context(), `DELETE FROM session_lifecycles WHERE org_id = $1 AND slug = $2`, orgID, slug)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // formatTime converts a pgx time value to RFC3339 string.

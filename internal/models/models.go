@@ -205,16 +205,19 @@ type AgentTypeFilterConfig struct {
 // AgentType represents a row in the agent_types table.
 // org_id = NULL means a global preset.
 type AgentType struct {
-	ID            string                `json:"id" db:"id"`
-	OrgID         *string               `json:"org_id,omitempty" db:"org_id"`
-	Name          string                `json:"name" db:"name"`
-	Slug          string                `json:"slug" db:"slug"`
-	BaseType      *string               `json:"base_type,omitempty" db:"base_type"`
-	Description   *string               `json:"description,omitempty" db:"description"`
-	InjectFilters AgentTypeFilterConfig `json:"inject_filters" db:"inject_filters"`
-	SearchFilters AgentTypeFilterConfig `json:"search_filters" db:"search_filters"`
-	CreatedAt     time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time             `json:"updated_at" db:"updated_at"`
+	ID              string                `json:"id" db:"id"`
+	OrgID           *string               `json:"org_id,omitempty" db:"org_id"`
+	Name            string                `json:"name" db:"name"`
+	Slug            string                `json:"slug" db:"slug"`
+	BaseType        *string               `json:"base_type,omitempty" db:"base_type"`
+	Description     *string               `json:"description,omitempty" db:"description"`
+	InjectFilters   AgentTypeFilterConfig `json:"inject_filters" db:"inject_filters"`
+	SearchFilters   AgentTypeFilterConfig `json:"search_filters" db:"search_filters"`
+	Hidden          bool                  `json:"hidden" db:"hidden"`
+	IsGlobal        bool                  `json:"is_global"`
+	OverridesGlobal *string               `json:"overrides_global,omitempty" db:"overrides_global"`
+	CreatedAt       time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 // ChunkType represents a row in the chunk_types table.
@@ -236,30 +239,34 @@ type AgentType struct {
 //
 // Org-specific types (org_id != NULL) are fully CRUD-able.
 type ChunkType struct {
-	ID                    string    `json:"id" db:"id"`
-	OrgID                 *string   `json:"org_id,omitempty" db:"org_id"`
-	Name                  string    `json:"name" db:"name"`
-	Slug                  string    `json:"slug" db:"slug"`
-	Description           *string   `json:"description,omitempty" db:"description"`
-	DefaultScope          string    `json:"default_scope" db:"default_scope"`
+	ID                    string          `json:"id" db:"id"`
+	OrgID                 *string         `json:"org_id,omitempty" db:"org_id"`
+	Name                  string          `json:"name" db:"name"`
+	Slug                  string          `json:"slug" db:"slug"`
+	Description           *string         `json:"description,omitempty" db:"description"`
+	DefaultScope          string          `json:"default_scope" db:"default_scope"`
 	DefaultInjectAudience *InjectAudience `json:"default_inject_audience" db:"default_inject_audience"`
-	ConsolidationBehavior string    `json:"consolidation_behavior" db:"consolidation_behavior"`
-	CreatedAt             time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
+	ConsolidationBehavior string          `json:"consolidation_behavior" db:"consolidation_behavior"`
+	Hidden                bool            `json:"hidden" db:"hidden"`
+	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at" db:"updated_at"`
+	OverridesGlobal       *string         `json:"overrides_global,omitempty"`
 }
 
 // SessionLifecycle represents a row in the session_lifecycles table.
 // org_id = NULL means a global built-in preset (default, dev, admin, orchestrator).
 type SessionLifecycle struct {
-	ID          string    `json:"id" db:"id"`
-	OrgID       *string   `json:"org_id,omitempty" db:"org_id"`
-	Name        string    `json:"name" db:"name"`
-	Slug        string    `json:"slug" db:"slug"`
-	IsDefault   bool      `json:"is_default" db:"is_default"`
-	Description *string   `json:"description,omitempty" db:"description"`
-	Config      []byte    `json:"config" db:"config"` // JSONB
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	ID              string          `json:"id" db:"id"`
+	OrgID           *string         `json:"org_id,omitempty" db:"org_id"`
+	Name            string          `json:"name" db:"name"`
+	Slug            string          `json:"slug" db:"slug"`
+	IsDefault       bool            `json:"is_default" db:"is_default"`
+	Description     *string         `json:"description,omitempty" db:"description"`
+	Config          []byte          `json:"config" db:"config"` // JSONB
+	Hidden          bool            `json:"hidden" db:"hidden"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at" db:"updated_at"`
+	OverridesGlobal *string         `json:"overrides_global,omitempty"`
 }
 
 // SessionLifecycleConfig is the parsed form of SessionLifecycle.Config.
@@ -290,4 +297,20 @@ type Session struct {
 	EndedAt           *time.Time `json:"ended_at,omitempty" db:"ended_at"`
 	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// AuditLogEntry represents a row in the audit_log table.
+type AuditLogEntry struct {
+	ID            string         `json:"id" db:"id"`
+	OrgID         string         `json:"org_id" db:"org_id"`
+	ActorType     string         `json:"actor_type" db:"actor_type"` // USER | AGENT | API_KEY
+	ActorID       string         `json:"actor_id" db:"actor_id"`
+	ActorEmail    *string        `json:"actor_email,omitempty" db:"actor_email"`
+	Action        string         `json:"action" db:"action"`
+	ResourceType  *string        `json:"resource_type,omitempty" db:"resource_type"`
+	ResourceID    *string        `json:"resource_id,omitempty" db:"resource_id"`
+	Metadata      map[string]any `json:"metadata" db:"metadata"`
+	IP            *string        `json:"ip,omitempty" db:"ip"`
+	UserAgent     *string        `json:"user_agent,omitempty" db:"user_agent"`
+	CreatedAt     time.Time      `json:"created_at" db:"created_at"`
 }

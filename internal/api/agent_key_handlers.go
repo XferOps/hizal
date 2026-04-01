@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -30,7 +29,11 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name is required")
+		return
+	}
+	if body.Name == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name is required")
 		return
 	}
@@ -46,7 +49,7 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 
 	plaintext, keyHash, err := auth.GenerateAPIKey(agent.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -57,7 +60,7 @@ func (h *AgentKeyHandlers) CreateAgentKey(w http.ResponseWriter, r *http.Request
 		RETURNING id
 	`, agentID, agent.OrgID, keyHash, body.Name).Scan(&key.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -85,7 +88,7 @@ func (h *AgentKeyHandlers) ListAgentKeys(w http.ResponseWriter, r *http.Request)
 		ORDER BY created_at DESC
 	`, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -134,7 +137,7 @@ func (h *AgentKeyHandlers) DeleteAgentKey(w http.ResponseWriter, r *http.Request
 		keyID, agentID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {

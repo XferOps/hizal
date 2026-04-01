@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -77,6 +78,24 @@ func TestServeHTTPRejectsUnsupportedTransportMethods(t *testing.T) {
 				t.Fatalf("expected Allow header, got %q", got)
 			}
 		})
+	}
+}
+
+func TestServeHTTPRejectsOversizedBody(t *testing.T) {
+	srv := &Server{}
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"payload":"` + strings.Repeat("a", 256) + `"}}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Body = http.MaxBytesReader(rec, req.Body, 64)
+
+	srv.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected status 413, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "request body exceeds the configured size limit") {
+		t.Fatalf("expected payload too large message, got %s", rec.Body.String())
 	}
 }
 
@@ -165,6 +184,34 @@ func TestReadContextToolSchemaSupportsQueryKey(t *testing.T) {
 	}
 	if len(required) != 0 {
 		t.Fatalf("read_context required = %v, want no required fields", required)
+	}
+}
+
+func TestReadToolsDoNotRequireProjectID(t *testing.T) {
+	t.Parallel()
+
+	// search_context and read_context support AGENT/ORG scope queries where
+	// project_id is optional. Their schemas must NOT list project_id as required.
+	readTools := []string{"search_context", "read_context"}
+
+	toolMap := make(map[string]toolSchema)
+	for _, tool := range toolList {
+		toolMap[tool.Name] = tool
+	}
+
+	for _, name := range readTools {
+		t.Run(name, func(t *testing.T) {
+			tool, ok := toolMap[name]
+			if !ok {
+				t.Fatalf("tool %q not found in toolList", name)
+			}
+			required, _ := tool.InputSchema["required"].([]string)
+			for _, field := range required {
+				if field == "project_id" {
+					t.Errorf("%s: project_id must NOT be in required (AGENT/ORG scope queries don't need it)", name)
+				}
+			}
+		})
 	}
 }
 

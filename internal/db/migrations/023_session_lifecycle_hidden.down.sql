@@ -1,0 +1,1 @@
+ALTER TABLE session_lifecycles DROP COLUMN hidden;

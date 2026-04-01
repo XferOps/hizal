@@ -1,11 +1,11 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -22,11 +22,12 @@ var validAgentStatuses = map[string]bool{
 }
 
 type AgentHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewAgentHandlers(pool *pgxpool.Pool) *AgentHandlers {
-	return &AgentHandlers{pool: pool}
+func NewAgentHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *AgentHandlers {
+	return &AgentHandlers{pool: pool, auditLogger: auditLogger}
 }
 
 // requireAgentAccess verifies the caller owns or is an org admin/owner of the agent.
@@ -98,7 +99,11 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		InstanceID  string   `json:"instance_id"`
 		Tags        []string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.Slug == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "name and slug are required")
+		return
+	}
+	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
 	}
@@ -151,8 +156,21 @@ func (h *AgentHandlers) CreateAgent(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "SLUG_TAKEN", "an agent with that slug already exists in this org")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "AGENT_CREATED",
+			ResourceType: strPtr("agent"),
+			ResourceID:   &agent.ID,
+			Metadata:     map[string]any{"agent_name": agent.Name, "agent_type": agent.Type},
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -190,7 +208,7 @@ func (h *AgentHandlers) ListAgents(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -342,8 +360,8 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		IPAddress   *string   `json:"ip_address"`
 		Tags        *[]string `json:"tags"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Status != nil && !validAgentStatuses[*body.Status] {
@@ -366,7 +384,7 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	`, agentID, body.Name, body.Description, body.Status,
 		body.Platform, body.InstanceID, body.IPAddress, tagsVal)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": agentID, "updated": true})
@@ -375,16 +393,36 @@ func (h *AgentHandlers) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 // DELETE /v1/agents/:id — deletes agent and cascades to keys + project assignments
 func (h *AgentHandlers) DeleteAgent(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
-	if _, _, err := requireAgentAccess(r, h.pool, agentID, "owner", "admin"); err != nil {
+	actor, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
+
+	orgID, _, err := requireAgentAccess(r, h.pool, agentID, "owner", "admin")
+	if err != nil {
 		writeError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
 		return
 	}
 
-	_, err := h.pool.Exec(r.Context(), `DELETE FROM agents WHERE id = $1`, agentID)
+	_, err = h.pool.Exec(r.Context(), `DELETE FROM agents WHERE id = $1`, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      actor.ID,
+			ActorEmail:   &actor.Email,
+			Action:       "AGENT_DELETED",
+			ResourceType: strPtr("agent"),
+			ResourceID:   &agentID,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -400,7 +438,11 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ProjectID string `json:"project_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ProjectID == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "project_id is required")
+		return
+	}
+	if body.ProjectID == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "project_id is required")
 		return
 	}
@@ -437,7 +479,7 @@ func (h *AgentHandlers) AddProject(w http.ResponseWriter, r *http.Request) {
 		agentID, body.ProjectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -460,7 +502,7 @@ func (h *AgentHandlers) RemoveProject(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM agent_projects WHERE agent_id = $1 AND project_id = $2`, agentID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

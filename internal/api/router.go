@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/embeddings"
 	"github.com/XferOps/hizal/internal/mcp"
 	"github.com/XferOps/hizal/internal/usage"
@@ -15,35 +17,50 @@ import (
 
 const version = "0.2.1"
 
+const (
+	defaultBodyLimitBytes    = int64(1 << 20)
+	chunkWriteBodyLimitBytes = int64(256 << 10)
+	mcpBodyLimitBytes        = int64(512 << 10)
+	authBodyLimitBytes       = int64(16 << 10)
+)
+
 func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
+	requireJWTSecretForStartup()
+
+	initLimiters()
+	startLimiterCleanup(5*time.Minute, 10*time.Minute)
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(corsMiddleware)
+	r.Use(BodyLimit(defaultBodyLimitBytes))
 
 	r.Get("/health", healthHandler)
 
 	var h *Handlers
 	var mcpServer *mcp.Server
 	var tracker *usage.Tracker
+	var auditLogger *audit.AuditLogger
 	if pool != nil {
 		mcpServer = mcp.NewServer(pool, embed)
 		h = NewHandlers(mcpServer.Tools(), pool)
 		tracker = usage.New(pool)
+		auditLogger = audit.New(pool)
 	}
 
-	authH := NewAuthHandlers(pool)
+	authH := NewAuthHandlers(pool, auditLogger)
 	inviteH, _ := NewInviteHandlers(context.Background(), pool)
-	orgH := NewOrgHandlers(pool)
+	orgH := NewOrgHandlers(pool, auditLogger)
 	projH := NewProjectHandlers(pool)
 	projMemberH := NewProjectMembershipHandlers(pool)
-	agentH := NewAgentHandlers(pool)
+	agentH := NewAgentHandlers(pool, auditLogger)
 	agentKeyH := NewAgentKeyHandlers(pool)
 	agentOnboardingH := NewAgentOnboardingHandlers(pool)
 	skillH := NewSkillHandlers(pool)
-	keyH := NewKeyHandlers(pool)
+	keyH := NewKeyHandlers(pool, auditLogger)
 	var seedH *SeedHandlers
 	if pool != nil && h != nil {
 		seedH = NewSeedHandlers(pool, mcpServer.Tools())
@@ -56,6 +73,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	agentTypeH := NewAgentTypeHandlers(pool)
 	chunkTypeH := NewChunkTypeHandlers(pool)
 	reviewH := NewReviewHandlers(pool)
+	adminH := NewAdminHandlers(pool)
 
 	pubH := NewPublicHandlers(pool, embed)
 
@@ -72,19 +90,22 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(JWTAuth())
 		r.Use(UserRateLimit(20.0/3600.0, 20))
-		r.Post("/api/v1/public/chunks/{chunkID}/add", pubH.AddPublicChunk)
+		r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/api/v1/public/chunks/{chunkID}/add", pubH.AddPublicChunk)
 	})
 
 	// Stripe webhook — no JWT auth, verified by Stripe-Signature header
 	r.Post("/v1/webhooks/stripe", billingH.HandleWebhook)
 
 	// ── Auth routes (no auth required for register/login) ──────────────────
+	// Strict IP-based limits per endpoint: register 5/min, login 10/min, accept-invite 3/hour
+	// These stack on top of the global 60/120 IP limiter applied at r.Group level.
 	r.Route("/v1/auth", func(r chi.Router) {
-		r.Post("/register", authH.Register)
-		r.Post("/login", authH.Login)
+		r.With(StrictIPRateLimit(5.0/60.0, 5), BodyLimit(authBodyLimitBytes)).Post("/register", authH.Register)
+		r.With(StrictIPRateLimit(10.0/60.0, 10), BodyLimit(authBodyLimitBytes)).Post("/login", authH.Login)
+		r.With(StrictIPRateLimit(10.0/60.0, 10), BodyLimit(authBodyLimitBytes)).Post("/refresh", authH.Refresh)
 		r.With(JWTAuth()).Get("/me", authH.Me)
-		r.With(JWTAuth()).Patch("/me", authH.UpdateUser)
-		r.Post("/accept-invite", inviteH.AcceptInvite)
+		r.With(JWTAuth(), BodyLimit(authBodyLimitBytes)).Patch("/me", authH.UpdateUser)
+		r.With(StrictIPRateLimit(3.0/3600.0, 3), BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
 	})
 
 	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
@@ -117,8 +138,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Delete("/v1/orgs/{id}/members/{userId}", orgH.RemoveMember)
 		r.Patch("/v1/orgs/{id}/members/{userId}", orgH.UpdateMemberRole)
 
-		// Org invites
-		r.Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
+		// Org invites — user-based strict limit: 10/hour per user (SES cost control)
+		r.With(StrictUserRateLimit(10.0/3600.0, 10)).Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
 		r.Get("/v1/orgs/{id}/invites", inviteH.ListInvites)
 		r.Delete("/v1/orgs/{id}/invites/{inviteId}", inviteH.CancelInvite)
 		r.Post("/v1/orgs/{id}/invites/{inviteId}/resend", inviteH.ResendInvite)
@@ -168,6 +189,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		// Agent types
 		r.Post("/v1/orgs/{id}/agent-types", agentTypeH.CreateAgentType)
 		r.Get("/v1/orgs/{id}/agent-types", agentTypeH.ListAgentTypes)
+		r.Post("/v1/orgs/{id}/agent-types/{slug}/fork", agentTypeH.ForkAgentType)
+		r.Post("/v1/orgs/{id}/agent-types/{slug}/reset", agentTypeH.ResetOrHideAgentType)
 		r.Get("/v1/agent-types/{id}", agentTypeH.GetAgentType)
 		r.Patch("/v1/agent-types/{id}", agentTypeH.UpdateAgentType)
 		r.Delete("/v1/agent-types/{id}", agentTypeH.DeleteAgentType)
@@ -175,6 +198,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		// Chunk types
 		r.Post("/v1/orgs/{id}/chunk-types", chunkTypeH.CreateChunkType)
 		r.Get("/v1/orgs/{id}/chunk-types", chunkTypeH.ListChunkTypes)
+		r.Post("/v1/orgs/{id}/chunk-types/{slug}/override", chunkTypeH.ForkOverride)
+		r.Delete("/v1/orgs/{id}/chunk-types/{slug}/override", chunkTypeH.ResetOrHide)
 		r.Get("/v1/chunk-types/{id}", chunkTypeH.GetChunkType)
 		r.Patch("/v1/chunk-types/{id}", chunkTypeH.UpdateChunkType)
 		r.Delete("/v1/chunk-types/{id}", chunkTypeH.DeleteChunkType)
@@ -194,6 +219,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			r.Get("/v1/orgs/{id}/sessions", sessionH.ListSessions)
 			r.Get("/v1/orgs/{id}/session-lifecycles", sessionH.ListSessionLifecycles)
 			r.Post("/v1/orgs/{id}/session-lifecycles", sessionH.CreateSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/fork", sessionH.ForkSessionLifecycle)
+			r.Post("/v1/orgs/{id}/session-lifecycles/{slug}/reset", sessionH.ResetOrHideSessionLifecycle)
 			r.Get("/v1/session-lifecycles/{id}", sessionH.GetSessionLifecycle)
 			r.Patch("/v1/session-lifecycles/{id}", sessionH.UpdateSessionLifecycle)
 			r.Delete("/v1/session-lifecycles/{id}", sessionH.DeleteSessionLifecycle)
@@ -202,7 +229,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 	// MCP endpoint (requires API key auth). POST serves JSON-RPC requests directly,
 	// while GET/DELETE advertise stateless Streamable HTTP semantics to remote clients.
-	r.With(APIKeyAuth(pool)).Route("/mcp", func(r chi.Router) {
+	// Rate: 120/min per API key (mixed read/write ops; stacks on global IP limit).
+	r.With(BodyLimit(mcpBodyLimitBytes), APIKeyAuth(pool), APIKeyRateLimit(120.0/60.0, 60)).Route("/mcp", func(r chi.Router) {
 		r.Method(http.MethodGet, "/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if mcpServer == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
@@ -237,6 +265,16 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	r.With(SkillAuth(pool)).Get("/api/v1/skills", skillH.List)
 	r.With(SkillAuth(pool)).Get("/api/v1/skills/{id}", skillH.Get)
 
+	// Platform admin routes
+	r.Route("/admin", func(r chi.Router) {
+		r.Use(JWTAuth())
+		r.Use(PlatformAdminOnly())
+		r.Get("/orgs", adminH.ListOrgs)
+		r.Get("/users", adminH.ListUsers)
+		r.Get("/projects", adminH.ListProjects)
+		r.Get("/keys", adminH.ListKeys)
+	})
+
 	// Usage analytics endpoint (requires auth, scoped to org)
 	r.With(APIKeyAuth(pool)).Get("/v1/usage", func(w http.ResponseWriter, r *http.Request) {
 		if pool == nil {
@@ -259,7 +297,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 
 		snapshots, err := usage.Query(r.Context(), pool, claims.OrgID, filterProject, days)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "QUERY_FAILED", err.Error())
+			writeInternalError(r, w, "QUERY_FAILED", err)
 			return
 		}
 		if snapshots == nil {
@@ -288,7 +326,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			}
 			h.ReadContext(w, r)
 		})
-		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+		// Write ops: 60/min per API key (embedding cost control)
+		r.With(APIKeyRateLimit(60.0/60.0, 30), BodyLimit(chunkWriteBodyLimitBytes)).Post("/", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 				return
@@ -300,7 +339,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 			}
 			h.WriteContext(w, r)
 		})
-		r.Get("/search", func(w http.ResponseWriter, r *http.Request) {
+		// Search: 120/min per API key (pgvector query load)
+		r.With(APIKeyRateLimit(120.0/60.0, 60)).Get("/search", func(w http.ResponseWriter, r *http.Request) {
 			if h == nil {
 				writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 				return
@@ -349,7 +389,19 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 				}
 				h.GetContextVersions(w, r)
 			})
-			r.Patch("/", func(w http.ResponseWriter, r *http.Request) {
+			r.Get("/reviews", func(w http.ResponseWriter, r *http.Request) {
+				if h == nil {
+					writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
+					return
+				}
+				if tracker != nil {
+					if claims, ok := ClaimsFrom(r.Context()); ok {
+						tracker.Track(claims.OrgID, claims.ProjectID, usage.OpRead)
+					}
+				}
+				h.GetContextReviews(w, r)
+			})
+			r.With(BodyLimit(chunkWriteBodyLimitBytes)).Patch("/", func(w http.ResponseWriter, r *http.Request) {
 				if h == nil {
 					writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 					return
@@ -373,7 +425,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 				}
 				h.DeleteContext(w, r)
 			})
-			r.Post("/review", func(w http.ResponseWriter, r *http.Request) {
+			r.With(BodyLimit(chunkWriteBodyLimitBytes)).Post("/review", func(w http.ResponseWriter, r *http.Request) {
 				if h == nil {
 					writeError(w, http.StatusServiceUnavailable, "DB_UNAVAILABLE", "database not connected")
 					return

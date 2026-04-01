@@ -1531,22 +1531,7 @@ func TestReviewContextInput_Validation(t *testing.T) {
 		}
 	})
 
-	t.Run("missing project_id returns error", func(t *testing.T) {
-		t.Parallel()
-		in := ReviewContextInput{
-			ChunkID:     "chunk-123",
-			Usefulness:  4,
-			Correctness: 4,
-			Action:      "useful",
-		}
-		_, err := tools.ReviewContext(context.Background(), "", in)
-		if err == nil {
-			t.Fatalf("expected error for missing project_id, got nil")
-		}
-		if !strings.Contains(err.Error(), "project_id is required") {
-			t.Fatalf("error = %q, want to contain 'project_id is required'", err.Error())
-		}
-	})
+
 }
 
 func TestDeleteContextInput_Validation(t *testing.T) {

@@ -4,29 +4,83 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/XferOps/hizal/internal/auth"
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewAuthHandlers(pool *pgxpool.Pool) *AuthHandlers {
-	return &AuthHandlers{pool: pool}
+const (
+	minPasswordLength = 8
+	maxPasswordLength = 128
+)
+
+type passwordValidationError struct {
+	message string
+}
+
+func (e *passwordValidationError) Error() string {
+	return e.message
+}
+
+func NewAuthHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *AuthHandlers {
+	return &AuthHandlers{pool: pool, auditLogger: auditLogger}
+}
+
+func getClientIP(r *http.Request) string {
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ip = xff
+	}
+	return ip
+}
+
+func validatePassword(password string) error {
+	length := utf8.RuneCountInString(password)
+	if length < minPasswordLength || length > maxPasswordLength {
+		return &passwordValidationError{
+			message: fmt.Sprintf("password must be between %d and %d characters", minPasswordLength, maxPasswordLength),
+		}
+	}
+	return nil
+}
+
+func writePasswordValidationError(w http.ResponseWriter, err error) bool {
+	var validationErr *passwordValidationError
+	if !errors.As(err, &validationErr) {
+		return false
+	}
+
+	writeError(w, http.StatusBadRequest, "INVALID_PASSWORD", validationErr.Error())
+	return true
 }
 
 // registerUser creates a user record and returns the new user ID + JWT.
 // Extracted so invite_handlers can reuse the logic without going through HTTP.
 func (h *AuthHandlers) registerUser(ctx context.Context, email, password, name string) (userID, token string, err error) {
+	if err := validatePassword(password); err != nil {
+		return "", "", err
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", "", err
@@ -59,25 +113,29 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Name     string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Email == "" || body.Password == "" || body.Name == "" {
 		writeError(w, http.StatusBadRequest, "MISSING_FIELDS", "email, password, and name are required")
 		return
 	}
+	if err := validatePassword(body.Password); err != nil {
+		writePasswordValidationError(w, err)
+		return
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "HASH_FAILED", err.Error())
+		writeInternalError(r, w, "HASH_FAILED", err)
 		return
 	}
 
 	// Everything in one transaction — if anything fails, nothing is created.
 	tx, err := h.pool.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -94,7 +152,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "EMAIL_TAKEN", "a user with that email already exists")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -114,11 +172,11 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 				INSERT INTO orgs (name, slug, is_personal) VALUES ($1, $2, TRUE) RETURNING id, slug
 			`, orgName, orgSlug).Scan(&orgID, &finalOrgSlug)
 			if err != nil {
-				writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+				writeInternalError(r, w, "DB_ERROR", err)
 				return
 			}
 		} else {
-			writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+			writeInternalError(r, w, "DB_ERROR", err)
 			return
 		}
 	}
@@ -128,7 +186,7 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		INSERT INTO org_memberships (user_id, org_id, role) VALUES ($1, $2, 'owner')
 	`, user.ID, orgID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -140,14 +198,14 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, orgID).Scan(&projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// 5. Generate default API key scoped to the project
 	plaintext, keyHash, err := auth.GenerateAPIKey(finalOrgSlug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -158,19 +216,19 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, user.ID, orgID, keyHash, projectID).Scan(&keyID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	// Commit the transaction
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
 	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
+		writeInternalError(r, w, "JWT_FAILED", err)
 		return
 	}
 
@@ -232,10 +290,13 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
+
+	ip := getClientIP(r)
+	userAgent := r.Header.Get("User-Agent")
 
 	var user models.User
 	var hash string
@@ -243,26 +304,180 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 		SELECT id, email, name, COALESCE(password_hash, '') FROM users WHERE email = $1
 	`, body.Email).Scan(&user.ID, &user.Email, &user.Name, &hash)
 	if err != nil || hash == "" {
+		if h.auditLogger != nil {
+			h.auditLogger.Log(r.Context(), audit.Entry{
+				OrgID:      "",
+				ActorType:  audit.ActorTypeUser,
+				ActorID:    "",
+				Action:     "LOGIN_FAILED",
+				Metadata:   map[string]any{"email": body.Email, "reason": "user_not_found"},
+				IP:         &ip,
+				UserAgent:  &userAgent,
+			})
+		}
 		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid email or password")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(body.Password)); err != nil {
+		if h.auditLogger != nil {
+			h.auditLogger.Log(r.Context(), audit.Entry{
+				OrgID:      "",
+				ActorType:  audit.ActorTypeUser,
+				ActorID:    user.ID,
+				ActorEmail: &user.Email,
+				Action:     "LOGIN_FAILED",
+				Metadata:   map[string]any{"reason": "invalid_password"},
+				IP:         &ip,
+				UserAgent:  &userAgent,
+			})
+		}
 		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid email or password")
 		return
 	}
 
 	token, err := SignJWT(user.ID, user.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "JWT_FAILED", err.Error())
+		writeInternalError(r, w, "JWT_FAILED", err)
+		return
+	}
+
+	refreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		writeInternalError(r, w, "TOKEN_GEN_FAILED", err)
+		return
+	}
+
+	refreshHash := HashRefreshToken(refreshToken)
+	expiresAt := time.Now().Add(7 * 24 * time.Hour)
+	_, err = h.pool.Exec(r.Context(), `
+		INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, refreshHash, user.ID, expiresAt)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:      "",
+			ActorType:  audit.ActorTypeUser,
+			ActorID:    user.ID,
+			ActorEmail: &user.Email,
+			Action:     "LOGIN_SUCCESS",
+			IP:         &ip,
+			UserAgent:  &userAgent,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"token":         token,
+		"refresh_token": refreshToken,
+		"user_id":       user.ID,
+		"email":         user.Email,
+		"name":          user.Name,
+	})
+}
+
+// POST /v1/auth/refresh
+func (h *AuthHandlers) Refresh(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
+		return
+	}
+
+	if body.RefreshToken == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_FIELDS", "refresh_token is required")
+		return
+	}
+
+	refreshHash := HashRefreshToken(body.RefreshToken)
+
+	var tokenID string
+	var userID string
+	var expiresAt time.Time
+	var revokedAt *time.Time
+
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT id, user_id, expires_at, revoked_at
+		FROM refresh_tokens
+		WHERE token_hash = $1
+	`, refreshHash).Scan(&tokenID, &userID, &expiresAt, &revokedAt)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "invalid refresh token")
+		return
+	}
+
+	if revokedAt != nil {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "refresh token has been revoked")
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		writeError(w, http.StatusUnauthorized, "AUTH_INVALID", "refresh token has expired")
+		return
+	}
+
+	var email string
+	err = h.pool.QueryRow(r.Context(), `SELECT email FROM users WHERE id = $1`, userID).Scan(&email)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `
+		UPDATE refresh_tokens
+		SET revoked_at = NOW()
+		WHERE id = $1
+	`, tokenID)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	newRefreshToken, err := GenerateRefreshToken()
+	if err != nil {
+		writeInternalError(r, w, "TOKEN_GEN_FAILED", err)
+		return
+	}
+
+	newRefreshHash := HashRefreshToken(newRefreshToken)
+	newExpiresAt := time.Now().Add(7 * 24 * time.Hour)
+
+	_, err = tx.Exec(r.Context(), `
+		INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+		VALUES ($1, $2, $3)
+	`, newRefreshHash, userID, newExpiresAt)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	newAccessToken, err := SignJWT(userID, email)
+	if err != nil {
+		writeInternalError(r, w, "JWT_FAILED", err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
+		"token":         newAccessToken,
+		"refresh_token": newRefreshToken,
 	})
 }
 
@@ -277,8 +492,8 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name *string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid request body")
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "invalid request body")
 		return
 	}
 	if body.Name == nil {
@@ -298,7 +513,7 @@ func (h *AuthHandlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, email, name
 	`, *body.Name, user.ID).Scan(&updatedUser.ID, &updatedUser.Email, &updatedUser.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -333,7 +548,7 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		ORDER BY o.created_at
 	`, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -382,34 +597,36 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		`, personalOrgID).Scan(&lockedProjectCount)
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"id":                   dbUser.ID,
-		"email":                dbUser.Email,
-		"name":                 dbUser.Name,
-		"orgs":                 orgs,
-		"personal_org_id":      personalOrgID,
-		"tier":                 personalTier,
-		"locked_project_count": lockedProjectCount,
-	})
-}
-
-// isUniqueViolation checks for Postgres unique constraint error (code 23505).
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	return containsStr(err.Error(), "23505") || containsStr(err.Error(), "unique")
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && stringContains(s, substr))
-}
-
-func stringContains(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
+	// Check if user is platform admin
+	var isPlatformAdmin *bool
+	adminIDs := parseAdminIDs(os.Getenv("ADMIN_IDS"))
+	for _, id := range adminIDs {
+		if id == dbUser.ID {
+			trueVal := true
+			isPlatformAdmin = &trueVal
+			break
 		}
 	}
-	return false
+
+	type meResponse struct {
+		ID                   string    `json:"id"`
+		Email                string    `json:"email"`
+		Name                 string    `json:"name"`
+		Orgs                 []orgItem `json:"orgs"`
+		PersonalOrgID        string    `json:"personal_org_id,omitempty"`
+		Tier                 string    `json:"tier,omitempty"`
+		LockedProjectCount   int       `json:"locked_project_count"`
+		IsPlatformAdmin      *bool     `json:"is_platform_admin,omitempty"`
+	}
+
+	writeJSON(w, http.StatusOK, meResponse{
+		ID:                   dbUser.ID,
+		Email:                dbUser.Email,
+		Name:                 dbUser.Name,
+		Orgs:                 orgs,
+		PersonalOrgID:        personalOrgID,
+		Tier:                 personalTier,
+		LockedProjectCount:   lockedProjectCount,
+		IsPlatformAdmin:      isPlatformAdmin,
+	})
 }

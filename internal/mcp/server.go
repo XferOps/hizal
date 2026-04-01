@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -87,16 +88,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"project_id":       map[string]interface{}{"type": "string", "description": "Project UUID to scope this operation"},
-				"query_key":        map[string]interface{}{"type": "string", "description": "Unique key for this context topic"},
-				"title":            map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":          map[string]interface{}{"type": "string", "description": "Full context content"},
-				"inject_audience":  map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":      map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":       map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"project_id":      map[string]interface{}{"type": "string", "description": "Project UUID to scope this operation"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this context topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Full context content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"project_id", "query_key", "title", "content"},
 		},
@@ -107,16 +108,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"agent_id":         map[string]interface{}{"type": "string", "description": "Agent UUID this identity applies to"},
-				"query_key":        map[string]interface{}{"type": "string", "description": "Unique key for this identity topic"},
-				"title":            map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":          map[string]interface{}{"type": "string", "description": "Identity content"},
-				"inject_audience":  map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":      map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":       map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"agent_id":        map[string]interface{}{"type": "string", "description": "Agent UUID this identity applies to"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this identity topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Identity content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"query_key", "title", "content"},
 		},
@@ -127,16 +128,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"agent_id":         map[string]interface{}{"type": "string", "description": "Agent UUID this memory applies to"},
-				"query_key":        map[string]interface{}{"type": "string", "description": "Unique key for this memory topic"},
-				"title":            map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":          map[string]interface{}{"type": "string", "description": "Memory content"},
-				"inject_audience":  map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":      map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":       map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"agent_id":        map[string]interface{}{"type": "string", "description": "Agent UUID this memory applies to"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this memory topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Memory content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"query_key", "title", "content"},
 		},
@@ -147,16 +148,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"project_id":       map[string]interface{}{"type": "string", "description": "Project UUID to scope this knowledge"},
-				"query_key":        map[string]interface{}{"type": "string", "description": "Unique key for this knowledge topic"},
-				"title":            map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":          map[string]interface{}{"type": "string", "description": "Knowledge content"},
-				"inject_audience":  map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":      map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":       map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"project_id":      map[string]interface{}{"type": "string", "description": "Project UUID to scope this knowledge"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this knowledge topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Knowledge content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"project_id", "query_key", "title", "content"},
 		},
@@ -167,16 +168,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"project_id":       map[string]interface{}{"type": "string", "description": "Project UUID to scope this convention"},
-				"query_key":        map[string]interface{}{"type": "string", "description": "Unique key for this convention topic"},
-				"title":            map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":          map[string]interface{}{"type": "string", "description": "Convention content"},
-				"inject_audience":  map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":      map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":     map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":          map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":       map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"project_id":      map[string]interface{}{"type": "string", "description": "Project UUID to scope this convention"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this convention topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Convention content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"project_id", "query_key", "title", "content"},
 		},
@@ -187,16 +188,16 @@ var toolList = []toolSchema{
 		InputSchema: map[string]interface{}{
 			"type": "object",
 			"properties": map[string]interface{}{
-				"org_id":            map[string]interface{}{"type": "string", "description": "Org UUID to scope this knowledge"},
-				"query_key":         map[string]interface{}{"type": "string", "description": "Unique key for this knowledge topic"},
-				"title":             map[string]interface{}{"type": "string", "description": "Short descriptive title"},
-				"content":           map[string]interface{}{"type": "string", "description": "Knowledge content"},
-				"inject_audience":   map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
-				"source_file":       map[string]interface{}{"type": "string", "description": "Source file path"},
-				"source_lines":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
-				"gotchas":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
-				"related":           map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
-				"visibility":        map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
+				"org_id":          map[string]interface{}{"type": "string", "description": "Org UUID to scope this knowledge"},
+				"query_key":       map[string]interface{}{"type": "string", "description": "Unique key for this knowledge topic"},
+				"title":           map[string]interface{}{"type": "string", "description": "Short descriptive title"},
+				"content":         map[string]interface{}{"type": "string", "description": "Knowledge content"},
+				"inject_audience": map[string]interface{}{"type": "object", "description": `Optional DNF targeting spec for auto-injection. Rules are OR'd; conditions within a rule are AND'd. Example: {"rules":[{"agent_types":["dev"]}]}. Omit to use chunk type default.`},
+				"source_file":     map[string]interface{}{"type": "string", "description": "Source file path"},
+				"source_lines":    map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "integer"}, "description": "[start, end] line numbers"},
+				"gotchas":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "List of gotchas/warnings"},
+				"related":         map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}, "description": "Related query keys"},
+				"visibility":      map[string]interface{}{"type": "string", "enum": []string{"private", "public"}, "description": `Visibility on the public chunk hub. "private" (default) keeps the chunk private; "public" makes it discoverable. Public chunks are never auto-injected.`},
 			},
 			"required": []string{"org_id", "query_key", "title", "content"},
 		},
@@ -492,7 +493,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	version, err := negotiatedProtocolVersionHeader(r.Header.Get("MCP-Protocol-Version"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Printf("protocol version negotiation error: %v", err)
+		http.Error(w, "invalid protocol version", http.StatusBadRequest)
 		return
 	}
 	if version != "" {
@@ -502,6 +504,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var req jsonRPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if isRequestBodyTooLarge(err) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			json.NewEncoder(w).Encode(rpcErrResp(nil, -32600, "request body exceeds the configured size limit"))
+			return
+		}
 		json.NewEncoder(w).Encode(rpcErrResp(nil, -32700, "parse error"))
 		return
 	}
@@ -551,7 +558,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result, err := s.dispatchTool(ctx, r, projectID, params.Name, params.Arguments)
 		if err != nil {
 			log.Printf("tool %s error: %v", params.Name, err)
-			resp.Error = &rpcError{Code: -32603, Message: err.Error()}
+			// ActiveSessionError carries structured data the caller needs to act on.
+			// Return it as an MCP tool-level error (isError:true in result content)
+			// so agents can read session_id + expires_at and call resume_session,
+			// rather than seeing an opaque JSON-RPC internal error.
+			var activeErr *ActiveSessionError
+			if errors.As(err, &activeErr) {
+				resp.Result = map[string]interface{}{
+					"content": []map[string]interface{}{
+						{"type": "text", "text": mustJSON(activeErr)},
+					},
+					"isError": true,
+				}
+			} else {
+				resp.Error = &rpcError{Code: -32603, Message: "internal error"}
+			}
 		} else {
 			resp.Result = map[string]interface{}{
 				"content": []map[string]interface{}{
@@ -610,6 +631,17 @@ func isSupportedProtocolVersion(version string) bool {
 	default:
 		return false
 	}
+}
+
+func isRequestBodyTooLarge(err error) bool {
+	if err == nil {
+		return false
+	}
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "request body too large")
 }
 
 type serverProject struct {
@@ -839,7 +871,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -864,7 +896,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -883,7 +915,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -941,7 +973,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid arguments: %w", err)
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -1065,6 +1097,28 @@ func (s *Server) resolveProjectID(ctx context.Context, r *http.Request, headerPr
 		return "", fmt.Errorf("project_id is required")
 	}
 
+	return s.validateProjectAccess(ctx, r, projectID)
+}
+
+// resolveOptionalProjectID is like resolveProjectID but returns "" when no
+// project_id is provided instead of erroring. Used by read-path tools
+// (search_context, read_context) that support AGENT and ORG scope queries
+// where a project_id is not required.
+func (s *Server) resolveOptionalProjectID(ctx context.Context, r *http.Request, headerProjectID, argProjectID string) (string, error) {
+	projectID := strings.TrimSpace(argProjectID)
+	if projectID == "" {
+		projectID = strings.TrimSpace(headerProjectID)
+	}
+	if projectID == "" {
+		return "", nil
+	}
+
+	return s.validateProjectAccess(ctx, r, projectID)
+}
+
+// validateProjectAccess checks that a non-empty project_id is accessible for
+// the current API key. Shared by resolveProjectID and resolveOptionalProjectID.
+func (s *Server) validateProjectAccess(ctx context.Context, r *http.Request, projectID string) (string, error) {
 	scope, err := s.loadAPIKeyScope(ctx, r)
 	if err != nil {
 		return "", err

@@ -1,22 +1,27 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"github.com/XferOps/hizal/internal/auth"
+	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type KeyHandlers struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	auditLogger *audit.AuditLogger
 }
 
-func NewKeyHandlers(pool *pgxpool.Pool) *KeyHandlers {
-	return &KeyHandlers{pool: pool}
+func NewKeyHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *KeyHandlers {
+	return &KeyHandlers{pool: pool, auditLogger: auditLogger}
+}
+
+func strPtr(s string) *string {
+	return &s
 }
 
 // POST /v1/keys (JWT auth)
@@ -33,8 +38,8 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 		ProjectIDs []string `json:"project_ids"`
 		ScopeAll   bool     `json:"scope_all"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_BODY", err.Error())
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
 		return
 	}
 	if body.Name == "" || body.OrgID == "" {
@@ -62,7 +67,7 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 
 	plaintext, keyHash, err := auth.GenerateAPIKey(org.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "KEYGEN_FAILED", err.Error())
+		writeInternalError(r, w, "KEYGEN_FAILED", err)
 		return
 	}
 
@@ -73,8 +78,21 @@ func (h *KeyHandlers) CreateKey(w http.ResponseWriter, r *http.Request) {
 		RETURNING id
 	`, user.ID, body.OrgID, keyHash, body.Name, body.ScopeAll, projectIDs).Scan(&key.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
+	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        body.OrgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "API_KEY_CREATED",
+			ResourceType: strPtr("api_key"),
+			ResourceID:   &key.ID,
+			Metadata:     map[string]any{"key_name": body.Name, "scope_all": body.ScopeAll},
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -137,7 +155,7 @@ func (h *KeyHandlers) ListKeys(w http.ResponseWriter, r *http.Request) {
 		ORDER BY ak.created_at DESC
 	`, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -219,16 +237,36 @@ func (h *KeyHandlers) DeleteKey(w http.ResponseWriter, r *http.Request) {
 	}
 	keyID := chi.URLParam(r, "id")
 
+	var orgID string
+	err := h.pool.QueryRow(r.Context(), `SELECT org_id FROM api_keys WHERE id = $1`, keyID).Scan(&orgID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "key not found")
+		return
+	}
+
 	tag, err := h.pool.Exec(r.Context(), `
 		DELETE FROM api_keys WHERE id = $1 AND user_id = $2
 	`, keyID, user.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "key not found or not yours")
 		return
 	}
+
+	if h.auditLogger != nil {
+		h.auditLogger.Log(r.Context(), audit.Entry{
+			OrgID:        orgID,
+			ActorType:    audit.ActorTypeUser,
+			ActorID:      user.ID,
+			ActorEmail:   &user.Email,
+			Action:       "API_KEY_DELETED",
+			ResourceType: strPtr("api_key"),
+			ResourceID:   &keyID,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }

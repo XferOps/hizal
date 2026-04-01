@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -739,9 +740,6 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 }
 
 func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateContextInput) (*UpdateContextResult, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
 	if in.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
@@ -779,6 +777,9 @@ func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateCo
 	args := []interface{}{}
 	argIdx := 1
 
+	// SECURITY: Column names are hardcoded strings, not derived from user input.
+	// User input only controls which fields are present (non-nil) and their values.
+	// Values are passed as parameterized arguments ($1, $2, etc.), preventing SQL injection.
 	if in.Title != nil {
 		setClauses = append(setClauses, fmt.Sprintf("title = $%d", argIdx))
 		args = append(args, *in.Title)
@@ -834,12 +835,20 @@ func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateCo
 	}
 
 	// WHERE args
-	args = append(args, in.ID, projectID)
+	args = append(args, in.ID)
 	idIdx := argIdx
-	projIdx := argIdx + 1
+	argIdx++
 
-	query := fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d AND project_id = $%d RETURNING updated_at`,
-		joinClauses(setClauses), idIdx, projIdx)
+	var query string
+	if projectID == "" {
+		query = fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d RETURNING updated_at`,
+			joinClauses(setClauses), idIdx)
+	} else {
+		args = append(args, projectID)
+		projIdx := argIdx
+		query = fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d AND project_id = $%d RETURNING updated_at`,
+			joinClauses(setClauses), idIdx, projIdx)
+	}
 
 	var updatedAt time.Time
 	if err := pool(t).QueryRow(ctx, query, args...).Scan(&updatedAt); err != nil {
@@ -957,21 +966,41 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 }
 
 func (t *Tools) ReviewContext(ctx context.Context, projectID string, in ReviewContextInput) (*ReviewContextResult, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
 	if in.ChunkID == "" {
 		return nil, fmt.Errorf("chunk_id is required")
 	}
-	if in.Usefulness < 1 || in.Usefulness > 5 || in.Correctness < 1 || in.Correctness > 5 {
+
+	// Default ratings for actions if not explicitly provided (dismiss_flag skips ratings)
+	isDismissAction := strings.HasPrefix(in.Action, "dismiss")
+	if in.Usefulness == 0 && !isDismissAction {
+		if in.Action == "approve" {
+			in.Usefulness = 5
+		} else {
+			in.Usefulness = 1
+		}
+	}
+	if in.Correctness == 0 && !isDismissAction {
+		if in.Action == "approve" {
+			in.Correctness = 5
+		} else {
+			in.Correctness = 1
+		}
+	}
+
+	if !isDismissAction && (in.Usefulness < 1 || in.Usefulness > 5 || in.Correctness < 1 || in.Correctness > 5) {
 		return nil, fmt.Errorf("usefulness and correctness must be 1-5")
 	}
 
-	// Verify chunk exists (scope-aware: ID is globally unique, no project_id gate)
-	var exists bool
-	_ = pool(t).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM context_chunks WHERE id = $1)`, in.ChunkID).Scan(&exists)
-	if !exists {
-		return nil, fmt.Errorf("chunk not found")
+	// Derive project_id from chunk if not provided (for human reviews via API)
+	if projectID == "" {
+		var chunkProjectID sql.NullString
+		err := pool(t).QueryRow(ctx, `SELECT project_id FROM context_chunks WHERE id = $1`, in.ChunkID).Scan(&chunkProjectID)
+		if err != nil {
+			return nil, fmt.Errorf("chunk not found")
+		}
+		if chunkProjectID.Valid {
+			projectID = chunkProjectID.String
+		}
 	}
 
 	var id string
@@ -1100,7 +1129,7 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
 		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, $1, $2, $3, $4, $5, 'IDENTITY', $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES (NULL, $1, $2, NULL, $3, $4, 'IDENTITY', $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
 		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).

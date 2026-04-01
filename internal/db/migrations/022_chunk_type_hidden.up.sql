@@ -1,0 +1,1 @@
+ALTER TABLE chunk_types ADD COLUMN hidden BOOLEAN NOT NULL DEFAULT false;

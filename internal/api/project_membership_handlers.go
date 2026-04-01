@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -116,7 +115,11 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 		Email string `json:"email"`
 		Role  string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Email == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "email is required")
+		return
+	}
+	if body.Email == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "email is required")
 		return
 	}
@@ -136,7 +139,7 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusNotFound, "USER_NOT_FOUND", "no user with that email")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -157,7 +160,7 @@ func (h *ProjectMembershipHandlers) AddMember(w http.ResponseWriter, r *http.Req
 		ON CONFLICT (user_id, project_id) DO UPDATE SET role = EXCLUDED.role
 	`, membershipID, user.ID, projectID, body.Role)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 
@@ -186,7 +189,7 @@ func (h *ProjectMembershipHandlers) ListMembers(w http.ResponseWriter, r *http.R
 		ORDER BY pm.created_at
 	`, projectID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	defer rows.Close()
@@ -231,7 +234,11 @@ func (h *ProjectMembershipHandlers) UpdateMemberRole(w http.ResponseWriter, r *h
 	var body struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Role == "" {
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "role is required")
+		return
+	}
+	if body.Role == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "role is required")
 		return
 	}
@@ -245,7 +252,7 @@ func (h *ProjectMembershipHandlers) UpdateMemberRole(w http.ResponseWriter, r *h
 		body.Role, targetUserID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	if tag.RowsAffected() == 0 {
@@ -275,7 +282,7 @@ func (h *ProjectMembershipHandlers) RemoveMember(w http.ResponseWriter, r *http.
 		targetUserID, projectID,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "DB_ERROR", err.Error())
+		writeInternalError(r, w, "DB_ERROR", err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

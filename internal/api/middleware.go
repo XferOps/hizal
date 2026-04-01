@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/XferOps/hizal/internal/auth"
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -167,8 +167,10 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 
 				// If no agent_id or org_id, try resolving from a chunk ID in the URL path.
 				// This covers GET/PATCH/DELETE /v1/context/:id and GET /v1/context/:id/versions.
+				// Also covers GET /v1/context/:id/reviews (HIZAL-137)
 				if orgID == "" {
-					if chunkID := chi.URLParam(r, "id"); chunkID != "" {
+					chunkID := extractChunkIDFromPath(r.URL.Path)
+					if chunkID != "" {
 						_ = pool.QueryRow(r.Context(), `
 							SELECT COALESCE(
 								cc.org_id,
@@ -213,4 +215,63 @@ func ContextAuth(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, scopedReq.WithContext(withClaims(ctx, claims)))
 		})
 	}
+}
+
+func extractChunkIDFromPath(urlPath string) string {
+	// Path format: /v1/context/{chunkID} or /v1/context/{chunkID}/reviews or /v1/context/{chunkID}/versions
+	// We want the segment after /v1/context/
+	segments := strings.Split(strings.TrimPrefix(urlPath, "/v1/context/"), "/")
+	if len(segments) > 0 && isValidUUID(segments[0]) {
+		return segments[0]
+	}
+	return ""
+}
+
+func isValidUUID(s string) bool {
+	// Simple UUID check: 8-4-4-4-12 hex format
+	if len(s) != 36 {
+		return false
+	}
+	// Check dashes at correct positions
+	if s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-' {
+		return false
+	}
+	// Check all other chars are hex
+	hexChars := "0123456789abcdefABCDEF-"
+	for _, c := range s {
+		if !strings.ContainsRune(hexChars, c) {
+			return false
+		}
+	}
+	return true
+}
+
+func PlatformAdminOnly() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := JWTUserFrom(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "authentication required")
+				return
+			}
+			adminIDs := parseAdminIDs(os.Getenv("ADMIN_IDS"))
+			for _, id := range adminIDs {
+				if id == user.ID {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "platform admin access required")
+		})
+	}
+}
+
+func parseAdminIDs(raw string) []string {
+	var ids []string
+	for _, s := range strings.Split(raw, ",") {
+		if id := strings.TrimSpace(s); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
