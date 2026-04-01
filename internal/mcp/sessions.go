@@ -295,6 +295,14 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		projectIDStr = *projectID
 	}
 
+	// Match each candidate against individual rules (not just MatchesSession)
+	// so we know exactly which rule(s) fired for each chunk. This is needed
+	// because the "latest" predicate caps per-rule, not globally.
+	//
+	// Design note: the latest grouping works cleanly when chunks share the same
+	// single-rule inject_audience. With multi-rule inject_audiences at different
+	// indices, a chunk may appear in multiple rule buckets — this is intentional,
+	// as each rule independently controls its own latest cap.
 	var matchedByRule []candidateWithRule
 	for _, cand := range candidates {
 		if len(cand.iaRaw) == 0 {
@@ -304,8 +312,8 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		if err := json.Unmarshal(cand.iaRaw, &ia); err != nil {
 			continue
 		}
-		if ia.MatchesSession(agentID, agentType, lifecycleStr, orgID, projectIDStr, agentTags, focusTags) {
-			for ruleIdx := range ia.Rules {
+		for ruleIdx, rule := range ia.Rules {
+			if rule.Matches(agentID, agentType, lifecycleStr, orgID, projectIDStr, agentTags, focusTags) {
 				matchedByRule = append(matchedByRule, candidateWithRule{
 					InjectedChunk: cand.InjectedChunk,
 					ia:            ia,
@@ -324,23 +332,31 @@ func (t *Tools) fetchInjectAudienceCandidates(
 			ruleMatched[m.ruleIndex] = append(ruleMatched[m.ruleIndex], m.InjectedChunk)
 		}
 
+		// Sort rule indices for deterministic iteration order. Go map iteration
+		// is randomized, which would cause non-deterministic token-budget
+		// truncation downstream.
+		ruleIdxs := make([]int, 0, len(ruleMatched))
+		for idx := range ruleMatched {
+			ruleIdxs = append(ruleIdxs, idx)
+		}
+		sort.Ints(ruleIdxs)
+
 		var allMatched []InjectedChunk
 		seen := make(map[string]bool)
-		for ruleIdx, ruleChunks := range ruleMatched {
-			if len(matchedByRule) > 0 {
-				latest := 0
-				for _, m := range matchedByRule {
-					if m.ruleIndex == ruleIdx && ruleIdx < len(m.ia.Rules) {
-						latest = m.ia.Rules[ruleIdx].Latest
-						break
-					}
+		for _, ruleIdx := range ruleIdxs {
+			ruleChunks := ruleMatched[ruleIdx]
+			latest := 0
+			for _, m := range matchedByRule {
+				if m.ruleIndex == ruleIdx && ruleIdx < len(m.ia.Rules) {
+					latest = m.ia.Rules[ruleIdx].Latest
+					break
 				}
-				if latest > 0 && len(ruleChunks) > latest {
-					sort.Slice(ruleChunks, func(i, j int) bool {
-						return ruleChunks[i].CreatedAt.After(ruleChunks[j].CreatedAt)
-					})
-					ruleChunks = ruleChunks[:latest]
-				}
+			}
+			if latest > 0 && len(ruleChunks) > latest {
+				sort.Slice(ruleChunks, func(i, j int) bool {
+					return ruleChunks[i].CreatedAt.After(ruleChunks[j].CreatedAt)
+				})
+				ruleChunks = ruleChunks[:latest]
 			}
 			for _, c := range ruleChunks {
 				if !seen[c.ID] {

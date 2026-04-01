@@ -47,14 +47,14 @@ func (ia *InjectAudience) MatchesSession(agentID, agentType, lifecycleType, orgI
 		return false
 	}
 	for _, rule := range ia.Rules {
-		if rule.matches(agentID, agentType, lifecycleType, orgID, projectID, agentTags, focusTags) {
+		if rule.Matches(agentID, agentType, lifecycleType, orgID, projectID, agentTags, focusTags) {
 			return true
 		}
 	}
 	return false
 }
 
-func (r InjectAudienceRule) matches(agentID, agentType, lifecycleType, orgID, projectID string, agentTags, focusTags []string) bool {
+func (r InjectAudienceRule) Matches(agentID, agentType, lifecycleType, orgID, projectID string, agentTags, focusTags []string) bool {
 	if r.All {
 		return true
 	}
@@ -109,7 +109,7 @@ func TestInjectAudienceRule_AgentTags(t *testing.T) {
 	t.Run("match when session agent has overlapping tag", func(t *testing.T) {
 		t.Parallel()
 		ctx := []string{"go", "senior"}
-		if !rule.matches("agent-1", "", "", "", "", ctx, nil) {
+		if !rule.Matches("agent-1", "", "", "", "", ctx, nil) {
 			t.Error("should match when session agent has overlapping tag")
 		}
 	})
@@ -117,7 +117,7 @@ func TestInjectAudienceRule_AgentTags(t *testing.T) {
 	t.Run("no match when no tag overlap", func(t *testing.T) {
 		t.Parallel()
 		ctx := []string{"frontend", "typescript"}
-		if rule.matches("agent-1", "", "", "", "", ctx, nil) {
+		if rule.Matches("agent-1", "", "", "", "", ctx, nil) {
 			t.Error("should not match when no tag overlap")
 		}
 	})
@@ -125,7 +125,7 @@ func TestInjectAudienceRule_AgentTags(t *testing.T) {
 	t.Run("no match when session agent has no tags", func(t *testing.T) {
 		t.Parallel()
 		ctx := []string{}
-		if rule.matches("agent-1", "", "", "", "", ctx, nil) {
+		if rule.Matches("agent-1", "", "", "", "", ctx, nil) {
 			t.Error("should not match when session agent has no tags")
 		}
 	})
@@ -134,7 +134,7 @@ func TestInjectAudienceRule_AgentTags(t *testing.T) {
 		t.Parallel()
 		emptyRule := InjectAudienceRule{}
 		ctx := []string{}
-		if !emptyRule.matches("agent-1", "", "", "", "", ctx, nil) {
+		if !emptyRule.Matches("agent-1", "", "", "", "", ctx, nil) {
 			t.Error("rule with no agent_tags constraint should always match (unless other constraints fail)")
 		}
 	})
@@ -145,11 +145,11 @@ func TestInjectAudienceRule_AgentTags(t *testing.T) {
 			AgentTypes: []string{"CODER"},
 			AgentTags:  []string{"backend"},
 		}
-		match := combinedRule.matches("agent-1", "CODER", "", "", "", []string{"backend", "go"}, nil)
+		match := combinedRule.Matches("agent-1", "CODER", "", "", "", []string{"backend", "go"}, nil)
 		if !match {
 			t.Error("should match when both agent_type and agent_tags align")
 		}
-		noMatch := combinedRule.matches("agent-1", "QA", "", "", "", []string{"backend"}, nil)
+		noMatch := combinedRule.Matches("agent-1", "QA", "", "", "", []string{"backend"}, nil)
 		if noMatch {
 			t.Error("should not match when agent_type doesn't match even with correct tags")
 		}
@@ -234,21 +234,21 @@ func TestInjectAudienceRule_ProjectIDs(t *testing.T) {
 
 	t.Run("match when session project is in list", func(t *testing.T) {
 		t.Parallel()
-		if !rule.matches("agent-1", "", "", "", "proj-1", nil, nil) {
+		if !rule.Matches("agent-1", "", "", "", "proj-1", nil, nil) {
 			t.Error("should match when project_id is in the rule's project_ids")
 		}
 	})
 
 	t.Run("no match when session project not in list", func(t *testing.T) {
 		t.Parallel()
-		if rule.matches("agent-1", "", "", "", "proj-3", nil, nil) {
+		if rule.Matches("agent-1", "", "", "", "proj-3", nil, nil) {
 			t.Error("should not match when project_id is not in the rule's project_ids")
 		}
 	})
 
 	t.Run("no match when session has no project", func(t *testing.T) {
 		t.Parallel()
-		if rule.matches("agent-1", "", "", "", "", nil, nil) {
+		if rule.Matches("agent-1", "", "", "", "", nil, nil) {
 			t.Error("should not match when session has no project_id")
 		}
 	})
