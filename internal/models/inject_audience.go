@@ -15,6 +15,7 @@ type InjectAudienceRule struct {
 	FocusTags      []string `json:"focus_tags,omitempty"`
 	OrgIDs         []string `json:"org_ids,omitempty"`
 	ProjectIDs     []string `json:"project_ids,omitempty"`
+	Latest         int      `json:"latest,omitempty"`
 }
 
 type InjectAudience struct {

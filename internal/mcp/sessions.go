@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/XferOps/hizal/internal/models"
@@ -31,12 +32,13 @@ type StartSessionResult struct {
 }
 
 type InjectedChunk struct {
-	ID        string `json:"id"`
-	QueryKey  string `json:"query_key"`
-	Title     string `json:"title"`
-	Content   string `json:"content"`
-	Scope     string `json:"scope"`
-	ChunkType string `json:"chunk_type"`
+	ID        string    `json:"id"`
+	QueryKey  string    `json:"query_key"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Scope     string    `json:"scope"`
+	ChunkType string    `json:"chunk_type"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 type ResumeSessionInput struct {
@@ -217,7 +219,7 @@ func (t *Tools) fetchInjectAudienceCandidates(
 	}
 
 	query := fmt.Sprintf(`
-		SELECT cc.id, cc.query_key, cc.title, cc.content, cc.scope, cc.chunk_type, cc.inject_audience
+		SELECT cc.id, cc.query_key, cc.title, cc.content, cc.scope, cc.chunk_type, cc.inject_audience, cc.created_at
 		FROM context_chunks cc
 		WHERE cc.inject_audience IS NOT NULL
 		  AND cc.scope = ANY($3)
@@ -247,7 +249,7 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		var c InjectedChunk
 		var rawContent []byte
 		var iaRaw []byte
-		if err := rows.Scan(&c.ID, &c.QueryKey, &c.Title, &rawContent, &c.Scope, &c.ChunkType, &iaRaw); err != nil {
+		if err := rows.Scan(&c.ID, &c.QueryKey, &c.Title, &rawContent, &c.Scope, &c.ChunkType, &iaRaw, &c.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		c.Content = decodeContent(rawContent)
@@ -260,7 +262,22 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		return nil, 0, err
 	}
 
-	var chunks []InjectedChunk
+	type candidateWithRule struct {
+		InjectedChunk
+		ia    models.InjectAudience
+		ruleIndex int
+	}
+
+	lifecycleStr := ""
+	if lifecycleType != nil {
+		lifecycleStr = *lifecycleType
+	}
+	projectIDStr := ""
+	if projectID != nil {
+		projectIDStr = *projectID
+	}
+
+	var matchedByRule []candidateWithRule
 	for _, cand := range candidates {
 		if len(cand.iaRaw) == 0 {
 			continue
@@ -269,17 +286,52 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		if err := json.Unmarshal(cand.iaRaw, &ia); err != nil {
 			continue
 		}
-		lifecycleStr := ""
-		if lifecycleType != nil {
-			lifecycleStr = *lifecycleType
-		}
-		projectIDStr := ""
-		if projectID != nil {
-			projectIDStr = *projectID
-		}
 		if ia.MatchesSession(agentID, agentType, lifecycleStr, orgID, projectIDStr, agentTags, focusTags) {
-			chunks = append(chunks, cand.InjectedChunk)
+			for ruleIdx := range ia.Rules {
+				matchedByRule = append(matchedByRule, candidateWithRule{
+					InjectedChunk: cand.InjectedChunk,
+					ia:            ia,
+					ruleIndex:     ruleIdx,
+				})
+			}
 		}
+	}
+
+	var chunks []InjectedChunk
+	if len(matchedByRule) == 0 {
+		chunks = nil
+	} else {
+		ruleMatched := make(map[int][]InjectedChunk)
+		for _, m := range matchedByRule {
+			ruleMatched[m.ruleIndex] = append(ruleMatched[m.ruleIndex], m.InjectedChunk)
+		}
+
+		var allMatched []InjectedChunk
+		seen := make(map[string]bool)
+		for ruleIdx, ruleChunks := range ruleMatched {
+			if len(matchedByRule) > 0 {
+				latest := 0
+				for _, m := range matchedByRule {
+					if m.ruleIndex == ruleIdx && ruleIdx < len(m.ia.Rules) {
+						latest = m.ia.Rules[ruleIdx].Latest
+						break
+					}
+				}
+				if latest > 0 && len(ruleChunks) > latest {
+					sort.Slice(ruleChunks, func(i, j int) bool {
+						return ruleChunks[i].CreatedAt.After(ruleChunks[j].CreatedAt)
+					})
+					ruleChunks = ruleChunks[:latest]
+				}
+			}
+			for _, c := range ruleChunks {
+				if !seen[c.ID] {
+					seen[c.ID] = true
+					allMatched = append(allMatched, c)
+				}
+			}
+		}
+		chunks = allMatched
 	}
 
 	truncated := 0
