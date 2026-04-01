@@ -901,7 +901,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}
@@ -959,7 +959,7 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err := json.Unmarshal(args, &in); err != nil {
 			return nil, fmt.Errorf("invalid arguments: %w", err)
 		}
-		projectID, err := s.resolveProjectID(ctx, r, headerProjectID, in.ProjectID)
+		projectID, err := s.resolveOptionalProjectID(ctx, r, headerProjectID, in.ProjectID)
 		if err != nil {
 			return nil, err
 		}

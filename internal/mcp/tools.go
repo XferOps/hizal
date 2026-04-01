@@ -740,9 +740,6 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 }
 
 func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateContextInput) (*UpdateContextResult, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required")
-	}
 	if in.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
@@ -838,12 +835,20 @@ func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateCo
 	}
 
 	// WHERE args
-	args = append(args, in.ID, projectID)
+	args = append(args, in.ID)
 	idIdx := argIdx
-	projIdx := argIdx + 1
+	argIdx++
 
-	query := fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d AND project_id = $%d RETURNING updated_at`,
-		joinClauses(setClauses), idIdx, projIdx)
+	var query string
+	if projectID == "" {
+		query = fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d RETURNING updated_at`,
+			joinClauses(setClauses), idIdx)
+	} else {
+		args = append(args, projectID)
+		projIdx := argIdx
+		query = fmt.Sprintf(`UPDATE context_chunks SET %s WHERE id = $%d AND project_id = $%d RETURNING updated_at`,
+			joinClauses(setClauses), idIdx, projIdx)
+	}
 
 	var updatedAt time.Time
 	if err := pool(t).QueryRow(ctx, query, args...).Scan(&updatedAt); err != nil {
@@ -1124,7 +1129,7 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
 		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, $1, $2, $3, $4, $5, 'IDENTITY', $6, $7, $8, $9, $10, $11, $12, $13)
+		VALUES (NULL, $1, $2, NULL, $3, $4, 'IDENTITY', $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
 		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
