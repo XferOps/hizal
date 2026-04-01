@@ -280,6 +280,7 @@ type ListChunksInput struct {
 
 type ListChunksResult struct {
 	Chunks []ChunkResult `json:"chunks"`
+	Total  int           `json:"total"`
 }
 
 type UpdateContextInput struct {
@@ -821,6 +822,13 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 		whereClause = strings.Join(filterClauses, " AND ")
 	}
 
+	// Count total matching chunks (before pagination)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM context_chunks cc WHERE %s`, whereClause)
+	var total int
+	if err := pool(t).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("list chunks count: %w", err)
+	}
+
 	args = append(args, limit)
 	args = append(args, offset)
 
@@ -850,7 +858,7 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 		chunks = append(chunks, readContextResultFromModel(chunk, version))
 	}
 
-	return &ListChunksResult{Chunks: chunks}, nil
+	return &ListChunksResult{Chunks: chunks, Total: total}, nil
 }
 
 func scanChunkListRow(row pgxScanner) (models.ContextChunk, int, error) {

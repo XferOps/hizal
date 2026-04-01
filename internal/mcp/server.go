@@ -904,10 +904,12 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if err != nil {
 			return nil, err
 		}
-		effectiveAgentID := in.AgentID
-		if effectiveAgentID == "" && scope.AgentID != nil {
-			effectiveAgentID = *scope.AgentID
+		// Security: agents can only query their own agent-scoped chunks.
+		// Org-level API keys (scope.AgentID == nil) can pass any agent_id.
+		if scope.AgentID != nil {
+			in.AgentID = *scope.AgentID
 		}
+		effectiveAgentID := in.AgentID
 		effectiveOrgID := scope.OrgID
 		result, err := s.tools.ListChunks(ctx, projectID, effectiveAgentID, effectiveOrgID, in)
 		if err == nil && scope.AgentID != nil {
