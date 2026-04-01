@@ -270,7 +270,6 @@ type ReadContextResult struct {
 type ListChunksInput struct {
 	ProjectID    string                 `json:"project_id,omitempty"`
 	ChunkType    string                 `json:"chunk_type,omitempty"`
-	CustomFields map[string]interface{} `json:"custom_fields,omitempty"`
 	Scope        string                 `json:"scope,omitempty"`
 	AgentID      string                 `json:"agent_id,omitempty"`
 	Sort         string                 `json:"sort,omitempty"`
@@ -755,7 +754,7 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 	}, nil
 }
 
-func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string, in ListChunksInput) (*ListChunksResult, error) {
+func (t *Tools) ListChunks(ctx context.Context, projectID, orgID string, in ListChunksInput) (*ListChunksResult, error) {
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 50
@@ -804,16 +803,6 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 	if in.Scope != "" {
 		filterClauses = append(filterClauses, fmt.Sprintf("cc.scope = $%d", argIdx))
 		args = append(args, in.Scope)
-		argIdx++
-	}
-
-	if len(in.CustomFields) > 0 {
-		cfJSON, err := json.Marshal(in.CustomFields)
-		if err != nil {
-			return nil, fmt.Errorf("custom_fields JSON error: %w", err)
-		}
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.custom_fields @> $%d::jsonb", argIdx))
-		args = append(args, cfJSON)
 		argIdx++
 	}
 

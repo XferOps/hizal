@@ -275,8 +275,7 @@ var toolList = []toolSchema{
 			"properties": map[string]interface{}{
 				"project_id":    map[string]interface{}{"type": "string", "description": "Project UUID — omit for cross-project queries"},
 				"chunk_type":    map[string]interface{}{"type": "string", "description": "Filter by chunk type slug (e.g. KNOWLEDGE, MEMORY, CONVENTION)"},
-				"custom_fields": map[string]interface{}{"type": "object", "description": "Filter by custom JSONB fields using @> operator (exact match)"},
-				"scope":         map[string]interface{}{"type": "string", "description": "Filter by scope: PROJECT | AGENT | ORG"},
+					"scope":         map[string]interface{}{"type": "string", "description": "Filter by scope: PROJECT | AGENT | ORG"},
 				"agent_id":      map[string]interface{}{"type": "string", "description": "Filter by agent UUID (for AGENT-scoped chunks)"},
 				"sort":          map[string]interface{}{"type": "string", "description": "Sort order: created_at or updated_at (default: updated_at)"},
 				"limit":         map[string]interface{}{"type": "integer", "description": "Max results (default 50, max 200)"},
@@ -923,9 +922,8 @@ func (s *Server) dispatchTool(ctx context.Context, r *http.Request, headerProjec
 		if scope.AgentID != nil {
 			in.AgentID = *scope.AgentID
 		}
-		effectiveAgentID := in.AgentID
 		effectiveOrgID := scope.OrgID
-		result, err := s.tools.ListChunks(ctx, projectID, effectiveAgentID, effectiveOrgID, in)
+		result, err := s.tools.ListChunks(ctx, projectID, effectiveOrgID, in)
 		if err == nil && scope.AgentID != nil {
 			go s.tools.incrementSessionActivity(*scope.AgentID, scope.OrgID, false)
 		}
