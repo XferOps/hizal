@@ -822,7 +822,7 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 		whereClause = strings.Join(filterClauses, " AND ")
 	}
 
-	// Count total matching chunks (before pagination)
+	// Count total matching rows (before pagination)
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM context_chunks cc WHERE %s`, whereClause)
 	var total int
 	if err := pool(t).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
@@ -834,7 +834,7 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 
 	query := fmt.Sprintf(`
 		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.inject_audience, cc.visibility, cc.chunk_type,
-		       cc.query_key, cc.title, cc.content, cc.source_file, cc.source_lines,
+		       cc.query_key, cc.title, cc.content, NULL::text AS embedding, cc.source_file, cc.source_lines,
 		       cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
 		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version
 		FROM context_chunks cc
@@ -851,7 +851,7 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 
 	chunks := []ChunkResult{}
 	for rows.Next() {
-		chunk, version, err := scanChunkListRow(rows)
+		chunk, version, err := scanChunkReadRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -859,43 +859,6 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, agentID, orgID string
 	}
 
 	return &ListChunksResult{Chunks: chunks, Total: total}, nil
-}
-
-func scanChunkListRow(row pgxScanner) (models.ContextChunk, int, error) {
-	var chunk models.ContextChunk
-	var version int
-	var iaRaw []byte
-	err := row.Scan(
-		&chunk.ID,
-		&chunk.ProjectID,
-		&chunk.Scope,
-		&chunk.AgentID,
-		&chunk.OrgID,
-		&iaRaw,
-		&chunk.Visibility,
-		&chunk.ChunkType,
-		&chunk.QueryKey,
-		&chunk.Title,
-		&chunk.Content,
-		&chunk.SourceFile,
-		&chunk.SourceLines,
-		&chunk.Gotchas,
-		&chunk.Related,
-		&chunk.CreatedByAgent,
-		&chunk.CreatedAt,
-		&chunk.UpdatedAt,
-		&version,
-	)
-	if err != nil {
-		return chunk, version, err
-	}
-	if len(iaRaw) > 0 {
-		var ia models.InjectAudience
-		if err2 := json.Unmarshal(iaRaw, &ia); err2 == nil {
-			chunk.InjectAudience = &ia
-		}
-	}
-	return chunk, version, nil
 }
 
 func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateContextInput) (*UpdateContextResult, error) {
