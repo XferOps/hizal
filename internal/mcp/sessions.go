@@ -226,8 +226,7 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		  %s%s%s
 		  AND (
 		    (cc.scope = 'AGENT' AND cc.agent_id = $1)
-		    OR (cc.scope = 'ORG' AND cc.project_id IS NULL AND EXISTS (
-		          SELECT 1 FROM projects p WHERE p.org_id = $2 AND (cc.project_id IS NULL)))
+		    OR (cc.scope = 'ORG' AND cc.project_id IS NULL AND cc.org_id = $2)
 		    OR (cc.scope = 'PROJECT' AND cc.project_id IS NOT NULL)
 		  )
 		ORDER BY
