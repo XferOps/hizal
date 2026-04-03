@@ -41,7 +41,7 @@ type InjectedChunk struct {
 	Content   string    `json:"content"`
 	Scope     string    `json:"scope"`
 	ChunkType string    `json:"chunk_type"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	CreatedAt time.Time `json:"-"`
 }
 
 type ResumeSessionInput struct {
@@ -282,8 +282,9 @@ func (t *Tools) fetchInjectAudienceCandidates(
 
 	type candidateWithRule struct {
 		InjectedChunk
-		ia    models.InjectAudience
-		ruleIndex int
+		ia      models.InjectAudience
+		rule    models.InjectAudienceRule
+		ruleKey string
 	}
 
 	lifecycleStr := ""
@@ -312,12 +313,16 @@ func (t *Tools) fetchInjectAudienceCandidates(
 		if err := json.Unmarshal(cand.iaRaw, &ia); err != nil {
 			continue
 		}
-		for ruleIdx, rule := range ia.Rules {
+		for _, rule := range ia.Rules {
 			if rule.Matches(agentID, agentType, lifecycleStr, orgID, projectIDStr, agentTags, focusTags) {
+				ruleKey := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v|%d",
+					rule.All, rule.AgentIDs, rule.AgentTypes, rule.LifecycleTypes,
+					rule.AgentTags, rule.OrgIDs, rule.ProjectIDs, rule.Latest)
 				matchedByRule = append(matchedByRule, candidateWithRule{
 					InjectedChunk: cand.InjectedChunk,
 					ia:            ia,
-					ruleIndex:     ruleIdx,
+					rule:          rule,
+					ruleKey:       ruleKey,
 				})
 			}
 		}
@@ -327,31 +332,26 @@ func (t *Tools) fetchInjectAudienceCandidates(
 	if len(matchedByRule) == 0 {
 		chunks = nil
 	} else {
-		ruleMatched := make(map[int][]InjectedChunk)
+		ruleMatched := make(map[string][]InjectedChunk)
+		ruleLatest := make(map[string]int)
 		for _, m := range matchedByRule {
-			ruleMatched[m.ruleIndex] = append(ruleMatched[m.ruleIndex], m.InjectedChunk)
+			ruleMatched[m.ruleKey] = append(ruleMatched[m.ruleKey], m.InjectedChunk)
+			if ruleLatest[m.ruleKey] == 0 {
+				ruleLatest[m.ruleKey] = m.rule.Latest
+			}
 		}
 
-		// Sort rule indices for deterministic iteration order. Go map iteration
-		// is randomized, which would cause non-deterministic token-budget
-		// truncation downstream.
-		ruleIdxs := make([]int, 0, len(ruleMatched))
-		for idx := range ruleMatched {
-			ruleIdxs = append(ruleIdxs, idx)
+		ruleKeys := make([]string, 0, len(ruleMatched))
+		for key := range ruleMatched {
+			ruleKeys = append(ruleKeys, key)
 		}
-		sort.Ints(ruleIdxs)
+		sort.Strings(ruleKeys)
 
 		var allMatched []InjectedChunk
 		seen := make(map[string]bool)
-		for _, ruleIdx := range ruleIdxs {
-			ruleChunks := ruleMatched[ruleIdx]
-			latest := 0
-			for _, m := range matchedByRule {
-				if m.ruleIndex == ruleIdx && ruleIdx < len(m.ia.Rules) {
-					latest = m.ia.Rules[ruleIdx].Latest
-					break
-				}
-			}
+		for _, ruleKey := range ruleKeys {
+			ruleChunks := ruleMatched[ruleKey]
+			latest := ruleLatest[ruleKey]
 			if latest > 0 && len(ruleChunks) > latest {
 				sort.Slice(ruleChunks, func(i, j int) bool {
 					return ruleChunks[i].CreatedAt.After(ruleChunks[j].CreatedAt)
