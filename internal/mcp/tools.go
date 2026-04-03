@@ -497,7 +497,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}
 
 	// Resolve scope — default to PROJECT for backward compatibility.
-	scope := in.Scope
+	scope = in.Scope
 	if scope == "" {
 		scope = "PROJECT"
 	}
