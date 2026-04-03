@@ -667,17 +667,8 @@ func TestReadContextValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("query_key without project_id returns error", func(t *testing.T) {
-		t.Parallel()
-
-		_, err := tools.ReadContext(context.Background(), "", ReadContextInput{QueryKey: "spec-key"})
-		if err == nil {
-			t.Fatalf("expected error for missing project_id, got nil")
-		}
-		if !strings.Contains(err.Error(), "project_id is required") {
-			t.Fatalf("error = %q, want to contain %q", err.Error(), "project_id is required")
-		}
-	})
+	// query_key without project_id is now valid — it searches across all projects
+	// for AGENT/ORG scoped chunks. No unit test here since it requires a DB connection.
 }
 
 func TestReadContextByQueryKey(t *testing.T) {
