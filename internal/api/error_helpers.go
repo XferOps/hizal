@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/getsentry/sentry-go"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -19,6 +20,9 @@ func writeInternalError(r *http.Request, w http.ResponseWriter, code string, err
 		writeError(w, http.StatusConflict, conflictCode, conflictMessage)
 		return
 	}
+
+	// Capture to Sentry so we know what actually went wrong
+	sentry.CaptureException(err)
 
 	writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", internalErrorMessage)
 }
