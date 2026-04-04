@@ -472,8 +472,13 @@ func normalizeVisibility(v string) string {
 // ---- Tool Implementations ----
 
 func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteContextInput) (*WriteContextResult, error) {
-	if projectID == "" {
-		return nil, fmt.Errorf("project_id is required (set X-Project-ID header)")
+	// project_id is only required for PROJECT-scoped chunks
+	scope := in.Scope
+	if scope == "" {
+		scope = "PROJECT" // default
+	}
+	if projectID == "" && scope == "PROJECT" {
+		return nil, fmt.Errorf("project_id is required for PROJECT-scoped chunks (set X-Project-ID header or use query_key for AGENT/ORG scope)")
 	}
 	if in.QueryKey == "" || in.Title == "" || in.Content == "" {
 		return nil, fmt.Errorf("query_key, title, and content are required")
@@ -507,7 +512,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}
 
 	// Resolve scope — default to PROJECT for backward compatibility.
-	scope := in.Scope
+	scope = in.Scope
 	if scope == "" {
 		scope = "PROJECT"
 	}
@@ -719,9 +724,11 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 		row = pool(t).QueryRow(ctx, query+`WHERE cc.id = $1`, in.ID)
 	} else {
 		if projectID == "" {
-			return nil, fmt.Errorf("project_id is required when reading by query_key")
+			// No project_id: search across all projects (for AGENT/ORG scoped chunks)
+			row = pool(t).QueryRow(ctx, query+`WHERE cc.query_key = $1 LIMIT 1`, in.QueryKey)
+		} else {
+			row = pool(t).QueryRow(ctx, query+`WHERE cc.query_key = $1 AND cc.project_id = $2 LIMIT 1`, in.QueryKey, projectID)
 		}
-		row = pool(t).QueryRow(ctx, query+`WHERE cc.query_key = $1 AND cc.project_id = $2 LIMIT 1`, in.QueryKey, projectID)
 	}
 
 	chunk, currentVersion, err := scanChunkReadRow(row)

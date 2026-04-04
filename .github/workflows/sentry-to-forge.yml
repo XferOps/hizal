@@ -1,0 +1,61 @@
+name: Sentry → Forge ticket
+
+# Triggered by a Sentry webhook configured to fire on new issues.
+# In Sentry: Settings → Integrations → Webhooks → Add webhook
+#   URL: https://api.github.com/repos/parkerscobey/hizal/dispatches
+#   Event: issue (new issues only)
+#
+# The webhook must send a repository_dispatch with event_type "sentry-issue".
+# Use a GitHub PAT with repo scope as the Bearer token in the Sentry webhook header:
+#   Authorization: Bearer <SENTRY_ACCESS_TOKEN>
+
+on:
+  repository_dispatch:
+    types: [sentry-issue]
+
+jobs:
+  create-forge-ticket:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract Sentry issue fields
+        id: parse
+        env:
+          PAYLOAD: ${{ toJson(github.event.client_payload) }}
+        run: |
+          echo "$PAYLOAD" | jq .
+          TITLE=$(echo "$PAYLOAD" | jq -r '.issue.title // "Untitled Sentry issue"')
+          ISSUE_ID=$(echo "$PAYLOAD" | jq -r '.issue.id // ""')
+          ISSUE_URL=$(echo "$PAYLOAD" | jq -r '.issue.web_url // ""')
+          SHORT_ID=$(echo "$PAYLOAD" | jq -r '.issue.shortId // ""')
+          CULPRIT=$(echo "$PAYLOAD" | jq -r '.issue.culprit // ""')
+          LEVEL=$(echo "$PAYLOAD" | jq -r '.issue.level // "error"')
+
+          echo "title=$TITLE" >> $GITHUB_OUTPUT
+          echo "issue_id=$ISSUE_ID" >> $GITHUB_OUTPUT
+          echo "issue_url=$ISSUE_URL" >> $GITHUB_OUTPUT
+          echo "short_id=$SHORT_ID" >> $GITHUB_OUTPUT
+          echo "culprit=$CULPRIT" >> $GITHUB_OUTPUT
+          echo "level=$LEVEL" >> $GITHUB_OUTPUT
+
+      - name: Create Forge ticket
+        env:
+          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+        run: |
+          PRIORITY="HIGH"
+          if [ "${{ steps.parse.outputs.level }}" = "fatal" ]; then
+            PRIORITY="CRITICAL"
+          fi
+
+          DESCRIPTION="Sentry caught a new ${{ steps.parse.outputs.level }}-level error in production.\n\n**Sentry issue:** [${{ steps.parse.outputs.short_id }}](${{ steps.parse.outputs.issue_url }})\n**Culprit:** \`${{ steps.parse.outputs.culprit }}\`\n**Sentry ID:** \`${{ steps.parse.outputs.issue_id }}\`\n\nInvestigate via the Sentry link above. Once root cause is identified, update this ticket with findings and a fix."
+
+          curl -s -X POST "https://forge.xferops.dev/api/tasks" \
+            -H "Authorization: Bearer $FORGE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"projectId\": \"cmmhg1y1f0001le01gkx2a3sk\",
+              \"columnId\": \"cmmhg1y1f0004le01iizyygsi\",
+              \"title\": \"[Sentry] ${{ steps.parse.outputs.title }}\",
+              \"description\": \"$DESCRIPTION\",
+              \"type\": \"BUG\",
+              \"priority\": \"$PRIORITY\"
+            }" | jq .

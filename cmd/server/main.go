@@ -13,9 +13,27 @@ import (
 	"github.com/XferOps/hizal/internal/api"
 	"github.com/XferOps/hizal/internal/db"
 	"github.com/XferOps/hizal/internal/embeddings"
+	"github.com/getsentry/sentry-go"
+	sentryhttp "github.com/getsentry/sentry-go/http"
 )
 
 func main() {
+	// Sentry — init early so panics during startup are captured too.
+	// Silently no-ops if SENTRY_DSN is empty (local dev).
+	if dsn := os.Getenv("SENTRY_DSN"); dsn != "" {
+		if err := sentry.Init(sentry.ClientOptions{
+			Dsn:              dsn,
+			Release:          os.Getenv("VERSION"),
+			Environment:      os.Getenv("ENV"),
+			TracesSampleRate: 0.1,
+		}); err != nil {
+			log.Printf("Sentry init failed: %v", err)
+		} else {
+			log.Printf("Sentry initialized (release=%s env=%s)", os.Getenv("VERSION"), os.Getenv("ENV"))
+			defer sentry.Flush(2 * time.Second)
+		}
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -41,9 +59,15 @@ func main() {
 
 	router := api.NewRouter(pool, embed)
 
+	// Wrap with Sentry HTTP middleware for panic recovery + request context.
+	sentryHandler := sentryhttp.New(sentryhttp.Options{
+		Repanic: true, // re-panic after capturing so the process still crashes
+	})
+	handler := sentryHandler.Handle(router)
+
 	srv := &http.Server{
 		Addr:        fmt.Sprintf(":%s", port),
-		Handler:     router,
+		Handler:     handler,
 		ReadTimeout: 15 * time.Second,
 		// SSE endpoints can legitimately stay open while incremental progress
 		// events are streamed, so a fixed write timeout will cut them off.
