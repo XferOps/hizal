@@ -267,6 +267,21 @@ type ReadContextResult struct {
 	Versions []VersionResult `json:"versions"`
 }
 
+type ListChunksInput struct {
+	ProjectID    string                 `json:"project_id,omitempty"`
+	ChunkType    string                 `json:"chunk_type,omitempty"`
+	Scope        string                 `json:"scope,omitempty"`
+	AgentID      string                 `json:"agent_id,omitempty"`
+	Sort         string                 `json:"sort,omitempty"`
+	Limit        int                    `json:"limit,omitempty"`
+	Offset       int                    `json:"offset,omitempty"`
+}
+
+type ListChunksResult struct {
+	Chunks []ChunkResult `json:"chunks"`
+	Total  int           `json:"total"`
+}
+
 type UpdateContextInput struct {
 	ProjectID      string           `json:"project_id,omitempty"`
 	ID             string           `json:"id"`
@@ -497,7 +512,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}
 
 	// Resolve scope — default to PROJECT for backward compatibility.
-	scope := in.Scope
+	scope = in.Scope
 	if scope == "" {
 		scope = "PROJECT"
 	}
@@ -744,6 +759,102 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 		ChunkResult: readContextResultFromModel(chunk, currentVersion),
 		Versions:    versions,
 	}, nil
+}
+
+func (t *Tools) ListChunks(ctx context.Context, projectID, orgID string, in ListChunksInput) (*ListChunksResult, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := in.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	sortCol := "cc.updated_at"
+	if in.Sort == "created_at" {
+		sortCol = "cc.created_at"
+	}
+
+	filterClauses := []string{}
+	args := []interface{}{}
+	argIdx := 1
+
+	if projectID != "" {
+		filterClauses = append(filterClauses, fmt.Sprintf("cc.project_id = $%d", argIdx))
+		args = append(args, projectID)
+		argIdx++
+	}
+
+	if in.AgentID != "" {
+		filterClauses = append(filterClauses, fmt.Sprintf("cc.agent_id = $%d", argIdx))
+		args = append(args, in.AgentID)
+		argIdx++
+	}
+
+	if orgID != "" {
+		filterClauses = append(filterClauses, fmt.Sprintf("cc.org_id = $%d", argIdx))
+		args = append(args, orgID)
+		argIdx++
+	}
+
+	if in.ChunkType != "" {
+		filterClauses = append(filterClauses, fmt.Sprintf("cc.chunk_type = $%d", argIdx))
+		args = append(args, in.ChunkType)
+		argIdx++
+	}
+
+	if in.Scope != "" {
+		filterClauses = append(filterClauses, fmt.Sprintf("cc.scope = $%d", argIdx))
+		args = append(args, in.Scope)
+		argIdx++
+	}
+
+	whereClause := "TRUE"
+	if len(filterClauses) > 0 {
+		whereClause = strings.Join(filterClauses, " AND ")
+	}
+
+	// Count total matching rows (before pagination)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM context_chunks cc WHERE %s`, whereClause)
+	var total int
+	if err := pool(t).QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("list chunks count: %w", err)
+	}
+
+	args = append(args, limit)
+	args = append(args, offset)
+
+	query := fmt.Sprintf(`
+		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.inject_audience, cc.visibility, cc.chunk_type,
+		       cc.query_key, cc.title, cc.content, NULL::text AS embedding, cc.source_file, cc.source_lines,
+		       cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version
+		FROM context_chunks cc
+		WHERE %s
+		ORDER BY %s DESC
+		LIMIT $%d OFFSET $%d
+	`, whereClause, sortCol, len(args)-1, len(args))
+
+	rows, err := pool(t).Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list chunks query: %w", err)
+	}
+	defer rows.Close()
+
+	chunks := []ChunkResult{}
+	for rows.Next() {
+		chunk, version, err := scanChunkReadRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, readContextResultFromModel(chunk, version))
+	}
+
+	return &ListChunksResult{Chunks: chunks, Total: total}, nil
 }
 
 func (t *Tools) UpdateContext(ctx context.Context, projectID string, in UpdateContextInput) (*UpdateContextResult, error) {
