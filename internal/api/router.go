@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -51,7 +52,11 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		h = NewHandlers(mcpServer.Tools(), pool)
 		tracker = usage.New(pool)
 		auditLogger = audit.New(pool)
-		emailClient, _ = email.New(context.Background())
+		var emailErr error
+		emailClient, emailErr = email.New(context.Background())
+		if emailErr != nil {
+			log.Printf("WARNING: email client failed to initialize: %v", emailErr)
+		}
 	}
 
 	authH := NewAuthHandlers(pool, auditLogger, emailClient)

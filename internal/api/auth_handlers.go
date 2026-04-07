@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -249,22 +250,28 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send verification email (no-op if email client is nil)
+	emailVerificationSent := false
 	if h.emailClient != nil {
 		verifyURL := appBaseURL() + "/verify-email?token=" + verificationToken
 		html, text := email.VerificationEmail(verifyURL)
-		_ = h.emailClient.Send(r.Context(), email.Message{
+		if sendErr := h.emailClient.Send(r.Context(), email.Message{
 			To:      user.Email,
 			Subject: "Verify your Hizal account",
 			HTML:    html,
 			Text:    text,
-		})
+		}); sendErr != nil {
+			log.Printf("WARNING: failed to send verification email to %s: %v", user.Email, sendErr)
+		} else {
+			emailVerificationSent = true
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"token":   token,
-		"user_id": user.ID,
-		"email":   user.Email,
-		"name":    user.Name,
+		"token":                   token,
+		"user_id":                 user.ID,
+		"email":                   user.Email,
+		"name":                    user.Name,
+		"email_verification_sent": emailVerificationSent,
 		"setup": map[string]interface{}{
 			"org": map[string]interface{}{
 				"id":   orgID,
@@ -715,6 +722,9 @@ func (h *AuthHandlers) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort cleanup of expired tokens from abandoned registrations
+	_, _ = h.pool.Exec(r.Context(), `DELETE FROM email_verification_tokens WHERE expires_at < NOW()`)
+
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Email verified successfully"})
 }
 
@@ -734,7 +744,7 @@ func (h *AuthHandlers) ResendVerification(w http.ResponseWriter, r *http.Request
 	}
 
 	if emailVerified {
-		writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
+		writeJSON(w, http.StatusOK, map[string]string{"message": "already verified"})
 		return
 	}
 
