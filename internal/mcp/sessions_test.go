@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -232,5 +234,115 @@ func TestResumeSessionResult_Fields(t *testing.T) {
 	}
 	if len(r.InjectedChunks) != 2 {
 		t.Errorf("InjectedChunks len = %d, want 2", len(r.InjectedChunks))
+	}
+}
+
+func TestLatestFiltering(t *testing.T) {
+	t.Parallel()
+
+	rule := models.InjectAudienceRule{
+		All:      true,
+		Latest:   3,
+	}
+
+	testChunks := []InjectedChunk{
+		{ID: "1", CreatedAt: time.Now().Add(-5 * time.Hour)},
+		{ID: "2", CreatedAt: time.Now().Add(-4 * time.Hour)},
+		{ID: "3", CreatedAt: time.Now().Add(-3 * time.Hour)},
+		{ID: "4", CreatedAt: time.Now().Add(-2 * time.Hour)},
+		{ID: "5", CreatedAt: time.Now().Add(-1 * time.Hour)},
+	}
+
+	ruleKey := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v|%d",
+		rule.All, rule.AgentIDs, rule.AgentTypes, rule.LifecycleTypes,
+		rule.AgentTags, rule.OrgIDs, rule.ProjectIDs, rule.Latest)
+
+	ruleMatched := map[string][]InjectedChunk{ruleKey: testChunks}
+	ruleLatest := map[string]int{ruleKey: rule.Latest}
+
+	ruleKeys := make([]string, 0, len(ruleMatched))
+	for key := range ruleMatched {
+		ruleKeys = append(ruleKeys, key)
+	}
+	sort.Strings(ruleKeys)
+
+	var allMatched []InjectedChunk
+	seen := make(map[string]bool)
+	for _, rKey := range ruleKeys {
+		rChunks := ruleMatched[rKey]
+		latest := ruleLatest[rKey]
+		if latest > 0 && len(rChunks) > latest {
+			sort.Slice(rChunks, func(i, j int) bool {
+				return rChunks[i].CreatedAt.After(rChunks[j].CreatedAt)
+			})
+			rChunks = rChunks[:latest]
+		}
+		for _, c := range rChunks {
+			if !seen[c.ID] {
+				seen[c.ID] = true
+				allMatched = append(allMatched, c)
+			}
+		}
+	}
+
+	if len(allMatched) != 3 {
+		t.Errorf("got %d chunks, want 3", len(allMatched))
+	}
+
+	wantIDs := []string{"5", "4", "3"}
+	for i, id := range wantIDs {
+		if allMatched[i].ID != id {
+			t.Errorf("chunk[%d] ID = %q, want %q", i, allMatched[i].ID, id)
+		}
+	}
+}
+
+func TestLatestFiltering_NoLimit(t *testing.T) {
+	t.Parallel()
+
+	rule := models.InjectAudienceRule{
+		All:    true,
+		Latest: 0,
+	}
+
+	testChunks := []InjectedChunk{
+		{ID: "1", CreatedAt: time.Now().Add(-2 * time.Hour)},
+		{ID: "2", CreatedAt: time.Now().Add(-1 * time.Hour)},
+	}
+
+	ruleKey := fmt.Sprintf("%v|%v|%v|%v|%v|%v|%v|%d",
+		rule.All, rule.AgentIDs, rule.AgentTypes, rule.LifecycleTypes,
+		rule.AgentTags, rule.OrgIDs, rule.ProjectIDs, rule.Latest)
+
+	ruleMatched := map[string][]InjectedChunk{ruleKey: testChunks}
+	ruleLatest := map[string]int{ruleKey: rule.Latest}
+
+	ruleKeys := make([]string, 0, len(ruleMatched))
+	for key := range ruleMatched {
+		ruleKeys = append(ruleKeys, key)
+	}
+	sort.Strings(ruleKeys)
+
+	var allMatched []InjectedChunk
+	seen := make(map[string]bool)
+	for _, rKey := range ruleKeys {
+		rChunks := ruleMatched[rKey]
+		latest := ruleLatest[rKey]
+		if latest > 0 && len(rChunks) > latest {
+			sort.Slice(rChunks, func(i, j int) bool {
+				return rChunks[i].CreatedAt.After(rChunks[j].CreatedAt)
+			})
+			rChunks = rChunks[:latest]
+		}
+		for _, c := range rChunks {
+			if !seen[c.ID] {
+				seen[c.ID] = true
+				allMatched = append(allMatched, c)
+			}
+		}
+	}
+
+	if len(allMatched) != 2 {
+		t.Errorf("got %d chunks, want 2", len(allMatched))
 	}
 }
