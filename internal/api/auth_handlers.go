@@ -16,6 +16,7 @@ import (
 
 	"github.com/XferOps/hizal/internal/auth"
 	"github.com/XferOps/hizal/internal/audit"
+	"github.com/XferOps/hizal/internal/email"
 	"github.com/XferOps/hizal/internal/models"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
@@ -24,11 +25,13 @@ import (
 type AuthHandlers struct {
 	pool        *pgxpool.Pool
 	auditLogger *audit.AuditLogger
+	emailClient *email.Client
 }
 
 const (
 	minPasswordLength = 8
 	maxPasswordLength = 128
+	verificationTTL   = 24 * time.Hour
 )
 
 type passwordValidationError struct {
@@ -39,8 +42,8 @@ func (e *passwordValidationError) Error() string {
 	return e.message
 }
 
-func NewAuthHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger) *AuthHandlers {
-	return &AuthHandlers{pool: pool, auditLogger: auditLogger}
+func NewAuthHandlers(pool *pgxpool.Pool, auditLogger *audit.AuditLogger, emailClient *email.Client) *AuthHandlers {
+	return &AuthHandlers{pool: pool, auditLogger: auditLogger, emailClient: emailClient}
 }
 
 func getClientIP(r *http.Request) string {
@@ -156,6 +159,19 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate verification token and insert into email_verification_tokens
+	expiresAt := time.Now().Add(verificationTTL)
+	var verificationToken string
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO email_verification_tokens (user_id, expires_at)
+		VALUES ($1, $2)
+		RETURNING token
+	`, user.ID, expiresAt).Scan(&verificationToken)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
 	// 2. Create personal org
 	orgName := fmt.Sprintf("%s's Workspace", body.Name)
 	orgSlug := deriveOrgSlug(body.Email)
@@ -230,6 +246,18 @@ func (h *AuthHandlers) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeInternalError(r, w, "JWT_FAILED", err)
 		return
+	}
+
+	// Send verification email (no-op if email client is nil)
+	if h.emailClient != nil {
+		verifyURL := appBaseURL() + "/verify-email?token=" + verificationToken
+		html, text := email.VerificationEmail(verifyURL)
+		_ = h.emailClient.Send(r.Context(), email.Message{
+			To:      user.Email,
+			Subject: "Verify your Hizal account",
+			HTML:    html,
+			Text:    text,
+		})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
@@ -533,7 +561,8 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var dbUser models.User
-	err := h.pool.QueryRow(r.Context(), `SELECT id, email, name FROM users WHERE id = $1`, user.ID).Scan(&dbUser.ID, &dbUser.Email, &dbUser.Name)
+	var emailVerified bool
+	err := h.pool.QueryRow(r.Context(), `SELECT id, email, name, email_verified FROM users WHERE id = $1`, user.ID).Scan(&dbUser.ID, &dbUser.Email, &dbUser.Name, &emailVerified)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
 		return
@@ -612,6 +641,7 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		ID                   string    `json:"id"`
 		Email                string    `json:"email"`
 		Name                 string    `json:"name"`
+		EmailVerified        bool      `json:"email_verified"`
 		Orgs                 []orgItem `json:"orgs"`
 		PersonalOrgID        string    `json:"personal_org_id,omitempty"`
 		Tier                 string    `json:"tier,omitempty"`
@@ -619,14 +649,162 @@ func (h *AuthHandlers) Me(w http.ResponseWriter, r *http.Request) {
 		IsPlatformAdmin      *bool     `json:"is_platform_admin,omitempty"`
 	}
 
-	writeJSON(w, http.StatusOK, meResponse{
+		writeJSON(w, http.StatusOK, meResponse{
 		ID:                   dbUser.ID,
 		Email:                dbUser.Email,
 		Name:                 dbUser.Name,
+		EmailVerified:        emailVerified,
 		Orgs:                 orgs,
 		PersonalOrgID:        personalOrgID,
 		Tier:                 personalTier,
 		LockedProjectCount:   lockedProjectCount,
 		IsPlatformAdmin:      isPlatformAdmin,
 	})
+}
+
+// POST /v1/auth/verify-email
+func (h *AuthHandlers) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSONDecodeError(w, err, "")
+		return
+	}
+	if body.Token == "" {
+		writeError(w, http.StatusBadRequest, "MISSING_FIELDS", "token is required")
+		return
+	}
+
+	var userID string
+	var expiresAt time.Time
+	err := h.pool.QueryRow(r.Context(), `
+		SELECT user_id, expires_at FROM email_verification_tokens WHERE token = $1
+	`, body.Token).Scan(&userID, &expiresAt)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_TOKEN", "invalid or expired verification token")
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		writeError(w, http.StatusBadRequest, "EXPIRED_TOKEN", "verification token has expired")
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `UPDATE users SET email_verified = TRUE WHERE id = $1`, userID)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	_, err = tx.Exec(r.Context(), `DELETE FROM email_verification_tokens WHERE token = $1`, body.Token)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Email verified successfully"})
+}
+
+// POST /v1/auth/resend-verification
+func (h *AuthHandlers) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	user, ok := JWTUserFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+		return
+	}
+
+	var emailVerified bool
+	err := h.pool.QueryRow(r.Context(), `SELECT email_verified FROM users WHERE id = $1`, user.ID).Scan(&emailVerified)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if emailVerified {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
+		return
+	}
+
+	tx, err := h.pool.Begin(r.Context())
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	_, err = tx.Exec(r.Context(), `DELETE FROM email_verification_tokens WHERE user_id = $1`, user.ID)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	expiresAt := time.Now().Add(verificationTTL)
+	var verificationToken string
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO email_verification_tokens (user_id, expires_at)
+		VALUES ($1, $2)
+		RETURNING token
+	`, user.ID, expiresAt).Scan(&verificationToken)
+	if err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeInternalError(r, w, "DB_ERROR", err)
+		return
+	}
+
+	if h.emailClient != nil {
+		verifyURL := appBaseURL() + "/verify-email?token=" + verificationToken
+		html, text := email.VerificationEmail(verifyURL)
+		_ = h.emailClient.Send(r.Context(), email.Message{
+			To:      user.Email,
+			Subject: "Verify your Hizal account",
+			HTML:    html,
+			Text:    text,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "verification email sent"})
+}
+
+// requireVerified returns a middleware that checks if the user's email is verified.
+func requireVerified(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user, ok := JWTUserFrom(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "AUTH_REQUIRED", "not authenticated")
+				return
+			}
+
+			var emailVerified bool
+			err := pool.QueryRow(r.Context(), `SELECT email_verified FROM users WHERE id = $1`, user.ID).Scan(&emailVerified)
+			if err != nil {
+				writeInternalError(r, w, "DB_ERROR", err)
+				return
+			}
+
+			if !emailVerified {
+				writeError(w, http.StatusForbidden, "EMAIL_NOT_VERIFIED", "Please verify your email address to continue.")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

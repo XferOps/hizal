@@ -8,6 +8,7 @@ import (
 
 	"github.com/XferOps/hizal/internal/audit"
 	"github.com/XferOps/hizal/internal/embeddings"
+	"github.com/XferOps/hizal/internal/email"
 	"github.com/XferOps/hizal/internal/mcp"
 	"github.com/XferOps/hizal/internal/usage"
 	"github.com/go-chi/chi/v5"
@@ -44,14 +45,16 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 	var mcpServer *mcp.Server
 	var tracker *usage.Tracker
 	var auditLogger *audit.AuditLogger
+	var emailClient *email.Client
 	if pool != nil {
 		mcpServer = mcp.NewServer(pool, embed)
 		h = NewHandlers(mcpServer.Tools(), pool)
 		tracker = usage.New(pool)
 		auditLogger = audit.New(pool)
+		emailClient, _ = email.New(context.Background())
 	}
 
-	authH := NewAuthHandlers(pool, auditLogger)
+	authH := NewAuthHandlers(pool, auditLogger, emailClient)
 	inviteH, _ := NewInviteHandlers(context.Background(), pool)
 	orgH := NewOrgHandlers(pool, auditLogger)
 	projH := NewProjectHandlers(pool)
@@ -106,6 +109,8 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.With(JWTAuth()).Get("/me", authH.Me)
 		r.With(JWTAuth(), BodyLimit(authBodyLimitBytes)).Patch("/me", authH.UpdateUser)
 		r.With(StrictIPRateLimit(3.0/3600.0, 3), BodyLimit(authBodyLimitBytes)).Post("/accept-invite", inviteH.AcceptInvite)
+		r.Post("/verify-email", authH.VerifyEmail)
+		r.With(JWTAuth(), StrictIPRateLimit(3.0/3600.0, 3), BodyLimit(authBodyLimitBytes)).Post("/resend-verification", authH.ResendVerification)
 	})
 
 	// ── Bootstrap key creation (kept for backward compat, no auth required) ──
@@ -130,7 +135,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Use(JWTAuth())
 
 		// Orgs
-		r.Post("/v1/orgs", orgH.CreateOrg)
+		r.With(requireVerified(pool)).Post("/v1/orgs", orgH.CreateOrg)
 		r.Get("/v1/orgs", orgH.ListOrgs)
 		r.Get("/v1/orgs/{id}", orgH.GetOrg)
 		r.Patch("/v1/orgs/{id}", orgH.UpdateOrg)
@@ -139,7 +144,7 @@ func NewRouter(pool *pgxpool.Pool, embed *embeddings.Client) http.Handler {
 		r.Patch("/v1/orgs/{id}/members/{userId}", orgH.UpdateMemberRole)
 
 		// Org invites — user-based strict limit: 10/hour per user (SES cost control)
-		r.With(StrictUserRateLimit(10.0/3600.0, 10)).Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
+		r.With(requireVerified(pool), StrictUserRateLimit(10.0/3600.0, 10)).Post("/v1/orgs/{id}/invites", inviteH.CreateInvite)
 		r.Get("/v1/orgs/{id}/invites", inviteH.ListInvites)
 		r.Delete("/v1/orgs/{id}/invites/{inviteId}", inviteH.CancelInvite)
 		r.Post("/v1/orgs/{id}/invites/{inviteId}/resend", inviteH.ResendInvite)

@@ -54,3 +54,31 @@ func InviteExistingUserEmail(orgName, loginURL string) (html, text string) {
 	)
 	return
 }
+
+// VerificationEmail returns the HTML and plain-text bodies for email verification.
+func VerificationEmail(verifyURL string) (html, text string) {
+	html = fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; max-width: 560px; margin: 40px auto; color: #111;">
+  <h2>Verify your Hizal account</h2>
+  <p>Click the button below to verify your email address and activate your Hizal account.</p>
+  <p style="margin: 32px 0;">
+    <a href="%s"
+       style="background:#111;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:bold;">
+      Verify Email
+    </a>
+  </p>
+  <p style="color:#666;font-size:13px;">
+    This link expires in 24 hours. If you didn't create a Hizal account, you can safely ignore this email.
+  </p>
+  <hr style="border:none;border-top:1px solid #eee;margin:32px 0;" />
+  <p style="color:#999;font-size:12px;">Hizal · AI context management · hizal.ai</p>
+</body>
+</html>`, verifyURL)
+
+	text = fmt.Sprintf(
+		"Verify your Hizal account: %s\n\nThis link expires in 24 hours.",
+		verifyURL,
+	)
+	return
+}
