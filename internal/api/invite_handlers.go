@@ -323,7 +323,7 @@ func (h *InviteHandlers) AcceptInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register the user (reuse auth handler logic inline).
-	authH := NewAuthHandlers(h.pool, h.auditLogger)
+	authH := NewAuthHandlers(h.pool, h.auditLogger, h.email)
 	userID, jwtToken, err := authH.registerUser(r.Context(), inviteEmail, body.Password, body.Name)
 	if err != nil {
 		if writePasswordValidationError(w, err) {
