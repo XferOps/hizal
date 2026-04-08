@@ -237,7 +237,7 @@ type ChunkResult struct {
 	Gotchas        []string                `json:"gotchas,omitempty"`
 	Related        []string                `json:"related,omitempty"`
 	Visibility     string                  `json:"visibility,omitempty"`
-	Score          float64                 `json:"score,omitempty"`
+	Score          *float64                `json:"score"`
 	Freshness      float64                 `json:"freshness,omitempty"`
 	StaleSignals   []StaleSignal           `json:"stale_signals,omitempty"`
 	Version        int                     `json:"version,omitempty"`
@@ -581,10 +581,15 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}, nil
 }
 
+// isWildcardQuery returns true when the query has no semantic content and
+// should skip embedding generation (empty string or bare "*").
+func isWildcardQuery(q string) bool {
+	q = strings.TrimSpace(q)
+	return q == "" || q == "*"
+}
+
 func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchContextInput, typeFilters models.AgentTypeFilterConfig) (*SearchContextResult, error) {
-	if in.Query == "" {
-		return nil, fmt.Errorf("query is required")
-	}
+	wildcard := isWildcardQuery(in.Query)
 	limit := in.Limit
 	if limit <= 0 {
 		limit = 10
@@ -598,26 +603,20 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 	agentID := in.AgentID
 	orgID := in.OrgID
 
-	emb, err := t.embed.Embed(ctx, in.Query)
-	if err != nil {
-		return nil, fmt.Errorf("embedding failed: %w", err)
-	}
-	vec := pgvector.NewVector(emb)
-
 	effectiveScope, effectiveChunkType := applyTypeFilters(in.Scope, in.ChunkType, typeFilters)
 
-	// Build scope-aware WHERE clause.
-	args := []interface{}{vec}
-	scopeClause, args := scopeFilter(effectiveScope, effectiveProjectID, agentID, orgID, args)
-	typeClause, args := chunkTypeFilter(effectiveChunkType, args)
-	injectClause, args := alwaysInjectFilter(in.AlwaysInjectOnly, args)
-	var excludeQKPClause string
-	if len(typeFilters.ExcludeQueryKeyPrefixes) > 0 {
-		excludeQKPClause = excludeQueryKeyPrefixesClause(typeFilters.ExcludeQueryKeyPrefixes)
-	}
-
 	// last_review_at: most recent review date, or updated_at if no reviews exist.
-	const searchCols = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
+	const browseColsTemplate = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
+			cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+			COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
+			NULL::float8 AS score,
+			COALESCE(
+				(SELECT MAX(cr.created_at) FROM context_reviews cr WHERE cr.chunk_id = cc.id),
+				cc.updated_at
+			) AS last_review_at,
+			cc.visibility`
+
+	const searchColsTemplate = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
 			cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
 			COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
 			COALESCE(1 - (cc.embedding <=> $1), 0) AS score,
@@ -628,32 +627,69 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 			cc.visibility`
 
 	var rows pgxRows
-	if in.QueryKey != "" {
-		args = append(args, in.QueryKey)
-		qkIdx := len(args)
+	var err error
+	if wildcard {
+		// Wildcard/empty query: skip embedding, order by updated_at DESC, score = null.
+		args := []interface{}{}
+		scopeClause, args := scopeFilter(effectiveScope, effectiveProjectID, agentID, orgID, args)
+		typeClause, args := chunkTypeFilter(effectiveChunkType, args)
+		injectClause, args := alwaysInjectFilter(in.AlwaysInjectOnly, args)
+		var excludeQKPClause string
+		if len(typeFilters.ExcludeQueryKeyPrefixes) > 0 {
+			excludeQKPClause = excludeQueryKeyPrefixesClause(typeFilters.ExcludeQueryKeyPrefixes)
+		}
 		args = append(args, limit)
 		limIdx := len(args)
-		query := fmt.Sprintf(`
-			SELECT %s
-			FROM context_chunks cc
-			WHERE cc.query_key = $%d
-			%s %s %s %s
-			ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
-			LIMIT $%d
-		`, searchCols, qkIdx, scopeClause, typeClause, injectClause, excludeQKPClause, limIdx)
-		rows, err = pool(t).Query(ctx, query, args...)
-	} else {
-		args = append(args, limit)
-		limIdx := len(args)
-		query := fmt.Sprintf(`
+		q := fmt.Sprintf(`
 			SELECT %s
 			FROM context_chunks cc
 			WHERE TRUE
 			%s %s %s %s
-			ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
+			ORDER BY cc.updated_at DESC
 			LIMIT $%d
-		`, searchCols, scopeClause, typeClause, injectClause, excludeQKPClause, limIdx)
-		rows, err = pool(t).Query(ctx, query, args...)
+		`, browseColsTemplate, scopeClause, typeClause, injectClause, excludeQKPClause, limIdx)
+		rows, err = pool(t).Query(ctx, q, args...)
+	} else {
+		emb, embedErr := t.embed.Embed(ctx, in.Query)
+		if embedErr != nil {
+			return nil, fmt.Errorf("embedding failed: %w", embedErr)
+		}
+		vec := pgvector.NewVector(emb)
+		args := []interface{}{vec}
+		scopeClause, args := scopeFilter(effectiveScope, effectiveProjectID, agentID, orgID, args)
+		typeClause, args := chunkTypeFilter(effectiveChunkType, args)
+		injectClause, args := alwaysInjectFilter(in.AlwaysInjectOnly, args)
+		var excludeQKPClause string
+		if len(typeFilters.ExcludeQueryKeyPrefixes) > 0 {
+			excludeQKPClause = excludeQueryKeyPrefixesClause(typeFilters.ExcludeQueryKeyPrefixes)
+		}
+		if in.QueryKey != "" {
+			args = append(args, in.QueryKey)
+			qkIdx := len(args)
+			args = append(args, limit)
+			limIdx := len(args)
+			q := fmt.Sprintf(`
+				SELECT %s
+				FROM context_chunks cc
+				WHERE cc.query_key = $%d
+				%s %s %s %s
+				ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
+				LIMIT $%d
+			`, searchColsTemplate, qkIdx, scopeClause, typeClause, injectClause, excludeQKPClause, limIdx)
+			rows, err = pool(t).Query(ctx, q, args...)
+		} else {
+			args = append(args, limit)
+			limIdx := len(args)
+			q := fmt.Sprintf(`
+				SELECT %s
+				FROM context_chunks cc
+				WHERE TRUE
+				%s %s %s %s
+				ORDER BY (cc.embedding IS NULL), cc.embedding <=> $1
+				LIMIT $%d
+			`, searchColsTemplate, scopeClause, typeClause, injectClause, excludeQKPClause, limIdx)
+			rows, err = pool(t).Query(ctx, q, args...)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("search query: %w", err)
@@ -672,7 +708,11 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 			lastActivity = chunk.UpdatedAt
 		}
 		freshness := computeFreshness(lastActivity)
-		result := chunkResultFromModel(chunk, version, cosineScore*freshness)
+		var scorePtr *float64
+		if !wildcard {
+			scorePtr = floatPtr(cosineScore * freshness)
+		}
+		result := chunkResultFromModel(chunk, version, scorePtr)
 		result.Freshness = freshness
 		results = append(results, result)
 	}
@@ -682,7 +722,14 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 	// Note: SQL LIMIT is applied before freshness decay, so decay re-ranks within
 	// the top-N window rather than across the full result set.
 	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
+		si, sj := 0.0, 0.0
+		if results[i].Score != nil {
+			si = *results[i].Score
+		}
+		if results[j].Score != nil {
+			sj = *results[j].Score
+		}
+		return si > sj
 	})
 
 	// Attach any stale signals (non-keep review actions + low scores) in one
@@ -1078,7 +1125,7 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 		if err != nil {
 			return nil, err
 		}
-		chunks = append(chunks, chunkResultFromModel(chunk, version, score))
+		chunks = append(chunks, chunkResultFromModel(chunk, version, floatPtr(score)))
 	}
 	return &CompactContextResult{Chunks: chunks, Total: len(chunks)}, nil
 }
@@ -2062,7 +2109,7 @@ func scanChunkSearchRow(row pgxScanner) (models.ContextChunk, int, float64, time
 	return chunk, version, score, lastReviewAt, err
 }
 
-func chunkResultFromModel(chunk models.ContextChunk, version int, score float64) ChunkResult {
+func chunkResultFromModel(chunk models.ContextChunk, version int, score *float64) ChunkResult {
 	sourceFile := ""
 	if chunk.SourceFile != nil {
 		sourceFile = *chunk.SourceFile
@@ -2085,8 +2132,10 @@ func chunkResultFromModel(chunk models.ContextChunk, version int, score float64)
 	}
 }
 
+func floatPtr(f float64) *float64 { return &f }
+
 func readContextResultFromModel(chunk models.ContextChunk, version int) ChunkResult {
-	result := chunkResultFromModel(chunk, version, 0)
+	result := chunkResultFromModel(chunk, version, nil)
 	result.Scope = chunk.Scope
 	result.AgentID = chunk.AgentID
 	result.OrgID = chunk.OrgID
