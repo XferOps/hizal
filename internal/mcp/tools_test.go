@@ -305,7 +305,7 @@ func TestChunkResultFromModel(t *testing.T) {
 		UpdatedAt:   updatedAt,
 	}
 
-	got := chunkResultFromModel(chunk, 3, 0.91)
+	got := chunkResultFromModel(chunk, 3, floatPtr(0.91))
 
 	if got.ID != chunk.ID {
 		t.Fatalf("ID = %q, want %q", got.ID, chunk.ID)
@@ -328,7 +328,7 @@ func TestChunkResultFromModel(t *testing.T) {
 	if got.Version != 3 {
 		t.Fatalf("Version = %d, want 3", got.Version)
 	}
-	if got.Score != 0.91 {
+	if got.Score == nil || *got.Score != 0.91 {
 		t.Fatalf("Score = %v, want 0.91", got.Score)
 	}
 }
@@ -410,6 +410,13 @@ func (s stubScanner) Scan(dest ...interface{}) error {
 			*d = s.values[i].(int)
 		case *float64:
 			*d = s.values[i].(float64)
+		case **float64:
+			if s.values[i] != nil {
+				val := s.values[i].(float64)
+				*d = &val
+			} else {
+				*d = nil
+			}
 		default:
 			return fmt.Errorf("unsupported dest type %T at index %d", dest[i], i)
 		}
@@ -1299,8 +1306,8 @@ func TestReadContextResultFromModel(t *testing.T) {
 	if result.Version != 5 {
 		t.Errorf("Version = %d, want 5", result.Version)
 	}
-	if result.Score != 0 {
-		t.Errorf("Score = %v, want 0", result.Score)
+	if result.Score != nil {
+		t.Errorf("Score = %v, want nil", result.Score)
 	}
 }
 
@@ -1323,7 +1330,7 @@ func TestChunkResultFromModel_DecodesAllFields(t *testing.T) {
 		UpdatedAt:   time.Date(2026, time.March, 2, 0, 0, 0, 0, time.UTC),
 	}
 
-	result := chunkResultFromModel(chunk, 2, 0.95)
+	result := chunkResultFromModel(chunk, 2, floatPtr(0.95))
 
 	if result.SourceFile != sourceFile {
 		t.Errorf("SourceFile = %q, want %q", result.SourceFile, sourceFile)
@@ -1337,7 +1344,7 @@ func TestChunkResultFromModel_DecodesAllFields(t *testing.T) {
 	if len(result.Related) != 2 {
 		t.Errorf("Related len = %d, want 2", len(result.Related))
 	}
-	if result.Score != 0.95 {
+	if result.Score == nil || *result.Score != 0.95 {
 		t.Errorf("Score = %v, want 0.95", result.Score)
 	}
 	if result.Version != 2 {
