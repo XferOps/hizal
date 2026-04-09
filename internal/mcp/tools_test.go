@@ -410,6 +410,13 @@ func (s stubScanner) Scan(dest ...interface{}) error {
 			*d = s.values[i].(int)
 		case *float64:
 			*d = s.values[i].(float64)
+		case **float64:
+			if s.values[i] != nil {
+				val := s.values[i].(float64)
+				*d = &val
+			} else {
+				*d = nil
+			}
 		default:
 			return fmt.Errorf("unsupported dest type %T at index %d", dest[i], i)
 		}
