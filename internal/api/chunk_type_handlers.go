@@ -30,7 +30,7 @@ func (h *ChunkTypeHandlers) ListChunkTypes(w http.ResponseWriter, r *http.Reques
 		SELECT
 			ct.id, ct.org_id, ct.name, ct.slug, ct.description,
 			ct.default_scope, ct.default_inject_audience,
-			ct.consolidation_behavior, ct.hidden,
+			ct.consolidation_behavior, ct.custom_fields, ct.hidden,
 			ct.created_at, ct.updated_at,
 			g.id AS overrides_global_id
 		FROM chunk_types ct
@@ -61,7 +61,7 @@ func (h *ChunkTypeHandlers) ListChunkTypes(w http.ResponseWriter, r *http.Reques
 		if err := rows.Scan(
 			&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.Description,
 			&t.DefaultScope, &t.DefaultInjectAudience, &t.ConsolidationBehavior,
-			&t.Hidden, &t.CreatedAt, &t.UpdatedAt, &overridesGlobalID,
+			&t.CustomFields, &t.Hidden, &t.CreatedAt, &t.UpdatedAt, &overridesGlobalID,
 		); err != nil {
 			continue
 		}
@@ -84,12 +84,13 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name                  string           `json:"name"`
-		Slug                  string           `json:"slug"`
-		Description           string           `json:"description"`
-		DefaultScope          string           `json:"default_scope"`
-		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
-		ConsolidationBehavior string           `json:"consolidation_behavior"`
+		Name                  string                    `json:"name"`
+		Slug                  string                    `json:"slug"`
+		Description           string                    `json:"description"`
+		DefaultScope          string                    `json:"default_scope"`
+		DefaultInjectAudience *json.RawMessage          `json:"default_inject_audience"`
+		ConsolidationBehavior string                    `json:"consolidation_behavior"`
+		CustomFields          []models.CustomFieldDefinition `json:"custom_fields"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
 		writeJSONDecodeError(w, err, "name and slug are required")
@@ -98,6 +99,10 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 	if body.Name == "" || body.Slug == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_BODY", "name and slug are required")
 		return
+	}
+
+	if body.CustomFields == nil {
+		body.CustomFields = []models.CustomFieldDefinition{}
 	}
 
 	if body.DefaultScope == "" {
@@ -109,13 +114,13 @@ func (h *ChunkTypeHandlers) CreateChunkType(w http.ResponseWriter, r *http.Reque
 
 	var t models.ChunkType
 	err := h.pool.QueryRow(r.Context(), `
-		INSERT INTO chunk_types (org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, created_at, updated_at
-	`, orgID, body.Name, body.Slug, nullableStr(body.Description), body.DefaultScope, nullJSONPtr(body.DefaultInjectAudience), body.ConsolidationBehavior).Scan(
+		INSERT INTO chunk_types (org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields, created_at, updated_at
+	`, orgID, body.Name, body.Slug, nullableStr(body.Description), body.DefaultScope, nullJSONPtr(body.DefaultInjectAudience), body.ConsolidationBehavior, body.CustomFields).Scan(
 		&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.Description,
 		&t.DefaultScope, &t.DefaultInjectAudience, &t.ConsolidationBehavior,
-		&t.CreatedAt, &t.UpdatedAt,
+		&t.CustomFields, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -134,12 +139,12 @@ func (h *ChunkTypeHandlers) GetChunkType(w http.ResponseWriter, r *http.Request)
 
 	var t models.ChunkType
 	err := h.pool.QueryRow(r.Context(), `
-		SELECT id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, created_at, updated_at
+		SELECT id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields, created_at, updated_at
 		FROM chunk_types WHERE id = $1
 	`, typeID).Scan(
 		&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.Description,
 		&t.DefaultScope, &t.DefaultInjectAudience, &t.ConsolidationBehavior,
-		&t.CreatedAt, &t.UpdatedAt,
+		&t.CustomFields, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "chunk type not found")
@@ -177,12 +182,13 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 	}
 
 	var body struct {
-		Name                  *string          `json:"name"`
-		Slug                  *string          `json:"slug"`
-		Description           *string          `json:"description"`
-		DefaultScope          *string          `json:"default_scope"`
-		DefaultInjectAudience *json.RawMessage `json:"default_inject_audience"`
-		ConsolidationBehavior *string          `json:"consolidation_behavior"`
+		Name                  *string                       `json:"name"`
+		Slug                  *string                       `json:"slug"`
+		Description           *string                       `json:"description"`
+		DefaultScope          *string                       `json:"default_scope"`
+		DefaultInjectAudience *json.RawMessage              `json:"default_inject_audience"`
+		ConsolidationBehavior *string                       `json:"consolidation_behavior"`
+		CustomFields          *[]models.CustomFieldDefinition `json:"custom_fields"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
 		writeJSONDecodeError(w, err, "")
@@ -226,6 +232,11 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 		args = append(args, *body.ConsolidationBehavior)
 		idx++
 	}
+	if body.CustomFields != nil {
+		setClauses = append(setClauses, fmt.Sprintf("custom_fields = $%d", idx))
+		args = append(args, *body.CustomFields)
+		idx++
+	}
 
 	if len(setClauses) > 0 {
 		setClauses = append(setClauses, "updated_at = NOW()")
@@ -244,12 +255,12 @@ func (h *ChunkTypeHandlers) UpdateChunkType(w http.ResponseWriter, r *http.Reque
 
 	var t models.ChunkType
 	err = h.pool.QueryRow(r.Context(), `
-		SELECT id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, created_at, updated_at
+		SELECT id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields, created_at, updated_at
 		FROM chunk_types WHERE id = $1
 	`, typeID).Scan(
 		&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.Description,
 		&t.DefaultScope, &t.DefaultInjectAudience, &t.ConsolidationBehavior,
-		&t.CreatedAt, &t.UpdatedAt,
+		&t.CustomFields, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		writeInternalError(r, w, "DB_ERROR", err)
@@ -299,12 +310,13 @@ func (h *ChunkTypeHandlers) ForkOverride(w http.ResponseWriter, r *http.Request)
 	var globalID string
 	var globalName, globalSlug, globalDesc, globalScope, globalConsolidation string
 	var globalInjectAudience *json.RawMessage
+	var globalCustomFields []models.CustomFieldDefinition
 	err := h.pool.QueryRow(r.Context(), `
-		SELECT id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior
+		SELECT id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields
 		FROM chunk_types WHERE org_id IS NULL AND slug = $1
 	`, slug).Scan(
 		&globalID, &globalName, &globalSlug, &globalDesc,
-		&globalScope, &globalInjectAudience, &globalConsolidation,
+		&globalScope, &globalInjectAudience, &globalConsolidation, &globalCustomFields,
 	)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "global chunk type not found")
@@ -320,13 +332,13 @@ func (h *ChunkTypeHandlers) ForkOverride(w http.ResponseWriter, r *http.Request)
 
 	var t models.ChunkType
 	err = h.pool.QueryRow(r.Context(), `
-		INSERT INTO chunk_types (org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, hidden)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, false)
-		RETURNING id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, hidden, created_at, updated_at
-	`, orgID, globalName, globalSlug, nullableStr(globalDesc), globalScope, nullJSONPtr(globalInjectAudience), globalConsolidation).Scan(
+		INSERT INTO chunk_types (org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields, hidden)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)
+		RETURNING id, org_id, name, slug, description, default_scope, default_inject_audience, consolidation_behavior, custom_fields, hidden, created_at, updated_at
+	`, orgID, globalName, globalSlug, nullableStr(globalDesc), globalScope, nullJSONPtr(globalInjectAudience), globalConsolidation, globalCustomFields).Scan(
 		&t.ID, &t.OrgID, &t.Name, &t.Slug, &t.Description,
 		&t.DefaultScope, &t.DefaultInjectAudience, &t.ConsolidationBehavior,
-		&t.Hidden, &t.CreatedAt, &t.UpdatedAt,
+		&t.CustomFields, &t.Hidden, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
 		writeInternalError(r, w, "DB_ERROR", err)

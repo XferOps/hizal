@@ -6,6 +6,16 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+// CustomFieldDefinition defines a custom field on a chunk type.
+// Used to turn chunk types into structured, validated data models.
+type CustomFieldDefinition struct {
+	Key      string   `json:"key" db:"key"`
+	Type     string   `json:"type" db:"type"` // text, enum, number, boolean, url, date
+	Values   []string `json:"values,omitempty" db:"values"` // for enum type
+	Required bool     `json:"required" db:"required"`
+	Default  *string  `json:"default,omitempty" db:"default"`
+}
+
 // Org represents a row in the orgs table.
 type Org struct {
 	ID        string    `json:"id" db:"id"`
@@ -146,6 +156,7 @@ type ContextChunk struct {
 	SourceLines    []byte          `json:"source_lines" db:"source_lines"` // JSONB
 	Gotchas        []byte          `json:"gotchas" db:"gotchas"`           // JSONB
 	Related        []byte          `json:"related" db:"related"`           // JSONB
+	CustomFields   map[string]any  `json:"custom_fields" db:"custom_fields"` // JSONB - typed field values
 	CreatedByAgent *string         `json:"created_by_agent,omitempty" db:"created_by_agent"`
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at" db:"updated_at"`
@@ -239,18 +250,19 @@ type AgentType struct {
 //
 // Org-specific types (org_id != NULL) are fully CRUD-able.
 type ChunkType struct {
-	ID                    string          `json:"id" db:"id"`
-	OrgID                 *string         `json:"org_id,omitempty" db:"org_id"`
-	Name                  string          `json:"name" db:"name"`
-	Slug                  string          `json:"slug" db:"slug"`
-	Description           *string         `json:"description,omitempty" db:"description"`
-	DefaultScope          string          `json:"default_scope" db:"default_scope"`
-	DefaultInjectAudience *InjectAudience `json:"default_inject_audience" db:"default_inject_audience"`
-	ConsolidationBehavior string          `json:"consolidation_behavior" db:"consolidation_behavior"`
-	Hidden                bool            `json:"hidden" db:"hidden"`
-	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time       `json:"updated_at" db:"updated_at"`
-	OverridesGlobal       *string         `json:"overrides_global,omitempty"`
+	ID                    string                   `json:"id" db:"id"`
+	OrgID                 *string                  `json:"org_id,omitempty" db:"org_id"`
+	Name                  string                   `json:"name" db:"name"`
+	Slug                  string                   `json:"slug" db:"slug"`
+	Description           *string                  `json:"description,omitempty" db:"description"`
+	DefaultScope          string                   `json:"default_scope" db:"default_scope"`
+	DefaultInjectAudience *InjectAudience          `json:"default_inject_audience" db:"default_inject_audience"`
+	ConsolidationBehavior string                   `json:"consolidation_behavior" db:"consolidation_behavior"`
+	CustomFields          []CustomFieldDefinition  `json:"custom_fields" db:"custom_fields"`
+	Hidden                bool                     `json:"hidden" db:"hidden"`
+	CreatedAt             time.Time                `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time                `json:"updated_at" db:"updated_at"`
+	OverridesGlobal       *string                  `json:"overrides_global,omitempty"`
 }
 
 // SessionLifecycle represents a row in the session_lifecycles table.

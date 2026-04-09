@@ -178,7 +178,8 @@ type WriteContextInput struct {
 	Related     []string `json:"related,omitempty"`
 	// Visibility controls public hub discoverability. "private" (default) | "public".
 	// Public chunks are never auto-injected — only discoverable on the hub.
-	Visibility string `json:"visibility,omitempty"`
+	Visibility   string         `json:"visibility,omitempty"`
+	CustomFields map[string]any `json:"custom_fields,omitempty"`
 }
 
 type WriteContextResult struct {
@@ -189,6 +190,7 @@ type WriteContextResult struct {
 	QueryKey        string                  `json:"query_key"`
 	Title           string                  `json:"title"`
 	Visibility      string                  `json:"visibility,omitempty"`
+	CustomFields    map[string]any          `json:"custom_fields,omitempty"`
 	CreatedAt       time.Time               `json:"created_at"`
 }
 
@@ -236,6 +238,7 @@ type ChunkResult struct {
 	SourceLines    []int                   `json:"source_lines,omitempty"`
 	Gotchas        []string                `json:"gotchas,omitempty"`
 	Related        []string                `json:"related,omitempty"`
+	CustomFields   map[string]any          `json:"custom_fields,omitempty"`
 	Visibility     string                  `json:"visibility,omitempty"`
 	Score          float64                 `json:"score,omitempty"`
 	Freshness      float64                 `json:"freshness,omitempty"`
@@ -270,6 +273,7 @@ type ReadContextResult struct {
 type ListChunksInput struct {
 	ProjectID    string                 `json:"project_id,omitempty"`
 	ChunkType    string                 `json:"chunk_type,omitempty"`
+	CustomFields map[string]any         `json:"custom_fields,omitempty"`
 	Scope        string                 `json:"scope,omitempty"`
 	AgentID      string                 `json:"agent_id,omitempty"`
 	Sort         string                 `json:"sort,omitempty"`
@@ -291,6 +295,7 @@ type UpdateContextInput struct {
 	SourceLines    []int            `json:"source_lines,omitempty"`
 	Gotchas        []string         `json:"gotchas,omitempty"`
 	Related        []string         `json:"related,omitempty"`
+	CustomFields   map[string]any   `json:"custom_fields,omitempty"`
 	ChangeNote     string           `json:"change_note"`
 	InjectAudience *json.RawMessage `json:"inject_audience,omitempty"`
 	Visibility     *string          `json:"visibility,omitempty"`
@@ -421,6 +426,111 @@ func isValidChunkType(ctx context.Context, pool *pgxpool.Pool, orgID string, chu
 	return count > 0, nil
 }
 
+// validateCustomFields validates custom_fields against the chunk type's custom_fields definition.
+func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string, chunkType string, customFields map[string]any) error {
+	if len(customFields) == 0 {
+		return nil
+	}
+
+	var fieldDefs []models.CustomFieldDefinition
+	err := pool.QueryRow(ctx, `
+		SELECT custom_fields FROM chunk_types
+		WHERE slug = $1 AND (org_id IS NULL OR org_id = $2)
+		ORDER BY org_id NULLS LAST
+		LIMIT 1
+	`, chunkType, orgID).Scan(&fieldDefs)
+	if err != nil {
+		return fmt.Errorf("chunk type not found: %w", err)
+	}
+
+	providedKeys := make(map[string]bool)
+	for k := range customFields {
+		providedKeys[k] = true
+	}
+
+	for _, field := range fieldDefs {
+		if field.Required && field.Default == nil {
+			if !providedKeys[field.Key] {
+				return fmt.Errorf("required field %q is missing", field.Key)
+			}
+		}
+		if providedKeys[field.Key] {
+			val := customFields[field.Key]
+			if err := validateFieldValue(field, val); err != nil {
+				return err
+			}
+		}
+	}
+
+	for k := range providedKeys {
+		found := false
+		for _, field := range fieldDefs {
+			if field.Key == k {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("unknown field %q", k)
+		}
+	}
+
+	return nil
+}
+
+func validateFieldValue(field models.CustomFieldDefinition, value any) error {
+	if value == nil {
+		return nil
+	}
+
+	switch field.Type {
+	case "text":
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("field %q must be a string", field.Key)
+		}
+	case "number":
+		switch value.(type) {
+		case float64, int, int64:
+		default:
+			return fmt.Errorf("field %q must be a number", field.Key)
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("field %q must be a boolean", field.Key)
+		}
+	case "enum":
+		str, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("field %q must be a string", field.Key)
+		}
+		found := false
+		for _, v := range field.Values {
+			if v == str {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("field %q must be one of: %v", field.Key, field.Values)
+		}
+	case "url":
+		str, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("field %q must be a string", field.Key)
+		}
+		if str != "" && !strings.HasPrefix(str, "http://") && !strings.HasPrefix(str, "https://") {
+			return fmt.Errorf("field %q must be a valid URL", field.Key)
+		}
+	case "date":
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("field %q must be a string", field.Key)
+		}
+	default:
+		return fmt.Errorf("unknown field type %q", field.Type)
+	}
+	return nil
+}
+
 type ChunkTypeDefaults struct {
 	DefaultScope             string
 	DefaultInjectAudience    *models.InjectAudience
@@ -537,6 +647,11 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 		return nil, fmt.Errorf("INVALID_CHUNK_TYPE: %q is not a valid chunk type for this org", chunkType)
 	}
 
+	// Validate custom_fields against chunk type definition
+	if err := validateCustomFields(ctx, pool(t), orgID, chunkType, in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	contentJSON := encodeContent(in.Content)
 	gotchasJSON := encodeStringSlice(in.Gotchas)
 	relatedJSON := encodeStringSlice(in.Related)
@@ -548,13 +663,13 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id, created_at
 	`, nullStr(projectID), scope, nullStr(in.AgentID), nullStr(in.OrgID),
 		nullInjectAudience(effectiveInjectAudience), vis, chunkType,
 		in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -577,6 +692,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1758,6 +1874,13 @@ func nullStr(s string) interface{} {
 	return s
 }
 
+func nullJSON(m map[string]any) interface{} {
+	if m == nil || len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
 func resolveInjectAudience(raw *json.RawMessage) *models.InjectAudience {
 	if raw == nil || len(*raw) == 0 || string(*raw) == "null" {
 		return nil
@@ -2077,6 +2200,7 @@ func chunkResultFromModel(chunk models.ContextChunk, version int, score float64)
 		SourceLines: decodeSourceLines(chunk.SourceLines),
 		Gotchas:     decodeStringSlice(chunk.Gotchas),
 		Related:     decodeStringSlice(chunk.Related),
+		CustomFields: chunk.CustomFields,
 		Visibility:  chunk.Visibility,
 		Score:       score,
 		Version:     version,
@@ -2093,5 +2217,6 @@ func readContextResultFromModel(chunk models.ContextChunk, version int) ChunkRes
 	result.InjectAudience = chunk.InjectAudience
 	result.ChunkType = chunk.ChunkType
 	result.Visibility = chunk.Visibility
+	result.CustomFields = chunk.CustomFields
 	return result
 }
