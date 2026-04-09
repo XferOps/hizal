@@ -2050,7 +2050,7 @@ func scanChunkReadRow(row pgxScanner) (models.ContextChunk, int, error) {
 func scanChunkResultRow(row pgxScanner) (models.ContextChunk, int, float64, error) {
 	var chunk models.ContextChunk
 	var version int
-	var score float64
+	var score *float64
 	var embeddingText *string
 	err := row.Scan(
 		&chunk.ID,
@@ -2073,7 +2073,11 @@ func scanChunkResultRow(row pgxScanner) (models.ContextChunk, int, float64, erro
 	if err == nil && embeddingText != nil {
 		err = chunk.Embedding.Parse(*embeddingText)
 	}
-	return chunk, version, score, err
+	parsedScore := float64(0)
+	if score != nil {
+		parsedScore = *score
+	}
+	return chunk, version, parsedScore, err
 }
 
 // scanChunkSearchRow is like scanChunkResultRow but also scans the extra
@@ -2081,7 +2085,7 @@ func scanChunkResultRow(row pgxScanner) (models.ContextChunk, int, float64, erro
 func scanChunkSearchRow(row pgxScanner) (models.ContextChunk, int, float64, time.Time, error) {
 	var chunk models.ContextChunk
 	var version int
-	var score float64
+	var score *float64
 	var lastReviewAt time.Time
 	var embeddingText *string
 	err := row.Scan(
@@ -2106,7 +2110,11 @@ func scanChunkSearchRow(row pgxScanner) (models.ContextChunk, int, float64, time
 	if err == nil && embeddingText != nil {
 		err = chunk.Embedding.Parse(*embeddingText)
 	}
-	return chunk, version, score, lastReviewAt, err
+	parsedScore := float64(0)
+	if score != nil {
+		parsedScore = *score
+	}
+	return chunk, version, parsedScore, lastReviewAt, err
 }
 
 func chunkResultFromModel(chunk models.ContextChunk, version int, score *float64) ChunkResult {
