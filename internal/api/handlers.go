@@ -68,6 +68,17 @@ func projectID(r *http.Request) string {
 	return r.Header.Get("X-Project-ID")
 }
 
+func orgID(r *http.Request) string {
+	claims, ok := ClaimsFrom(r.Context())
+	if !ok {
+		return r.URL.Query().Get("org_id")
+	}
+	if claims.OrgID != "" {
+		return claims.OrgID
+	}
+	return r.URL.Query().Get("org_id")
+}
+
 // POST /v1/context
 func (h *Handlers) WriteContext(w http.ResponseWriter, r *http.Request) {
 	var in mcp.WriteContextInput
@@ -95,7 +106,7 @@ func (h *Handlers) SearchContext(w http.ResponseWriter, r *http.Request) {
 		QueryKey:         q.Get("query_key"),
 		Scope:            q.Get("scope"),
 		AgentID:          q.Get("agent_id"),
-		OrgID:            q.Get("org_id"),
+		OrgID:            orgID(r),
 		ChunkType:        q.Get("chunk_type"),
 		AlwaysInjectOnly: alwaysInjectOnly,
 	}
@@ -117,7 +128,7 @@ func (h *Handlers) CompactContext(w http.ResponseWriter, r *http.Request) {
 		Limit:     limit,
 		Scope:     q.Get("scope"),
 		AgentID:   q.Get("agent_id"),
-		OrgID:     q.Get("org_id"),
+		OrgID:     orgID(r),
 		ChunkType: q.Get("chunk_type"),
 	}
 	result, err := h.tools.CompactContext(r.Context(), projectID(r), in, models.AgentTypeFilterConfig{})
