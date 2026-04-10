@@ -615,8 +615,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					},
 					"isError": true,
 				}
-			} else {
+			} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				resp.Error = &rpcError{Code: -32603, Message: "internal error"}
+			} else {
+				resp.Result = map[string]interface{}{
+					"content": []map[string]interface{}{
+						{"type": "text", "text": err.Error()},
+					},
+					"isError": true,
+				}
 			}
 		} else {
 			resp.Result = map[string]interface{}{

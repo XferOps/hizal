@@ -103,6 +103,17 @@ func (e *ActiveSessionError) Error() string {
 	)
 }
 
+// ValidationError is returned by tools when validation fails and the error
+// message should be surfaced to the caller (agent or developer) rather than
+// being wrapped in a generic "internal error".
+type ValidationError struct {
+	Message string `json:"message"`
+}
+
+func (e *ValidationError) Error() string {
+	return e.Message
+}
+
 // ---- Helpers ----
 
 // resolveLifecycle fetches the lifecycle for the given slug (org-specific first,
