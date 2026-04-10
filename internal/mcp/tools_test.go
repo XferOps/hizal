@@ -108,6 +108,7 @@ func TestScanChunkSearchRow(t *testing.T) {
 		[]byte(`[10,20]`),
 		encodeStringSlice([]string{"token expires"}),
 		encodeStringSlice([]string{"chunk-related"}),
+		map[string]any{"status": "backlog"},
 		&createdByAgent,
 		createdAt,
 		updatedAt,
@@ -354,6 +355,7 @@ func TestScanChunkResultRow(t *testing.T) {
 		[]byte(`[9,21]`),
 		encodeStringSlice([]string{"Keep version metadata"}),
 		encodeStringSlice([]string{"chunk-def"}),
+		map[string]any{"status": "active"},
 		&createdByAgent,
 		createdAt,
 		updatedAt,
@@ -418,6 +420,15 @@ func (s stubScanner) Scan(dest ...interface{}) error {
 				*d = nil
 			}
 		default:
+			// Support map[string]any for custom_fields JSONB columns.
+			if m, ok := dest[i].(*map[string]any); ok {
+				if s.values[i] != nil {
+					*m = s.values[i].(map[string]any)
+				} else {
+					*m = nil
+				}
+				continue
+			}
 			return fmt.Errorf("unsupported dest type %T at index %d", dest[i], i)
 		}
 	}
@@ -1455,6 +1466,25 @@ func TestWriteChunkInput_Fields(t *testing.T) {
 		}
 		if in.OrgID != "" {
 			t.Errorf("OrgID = %q, want empty", in.OrgID)
+		}
+	})
+
+	t.Run("CustomFields accepts typed field values", func(t *testing.T) {
+		t.Parallel()
+		in := WriteChunkInput{
+			Type:     "SPEC",
+			QueryKey: "test-spec",
+			Title:    "Test SPEC",
+			Content:  "Content",
+			CustomFields: map[string]any{
+				"status": "in_progress",
+			},
+		}
+		if in.CustomFields == nil {
+			t.Fatal("CustomFields = nil, want map")
+		}
+		if in.CustomFields["status"] != "in_progress" {
+			t.Errorf("CustomFields[status] = %v, want 'in_progress'", in.CustomFields["status"])
 		}
 	})
 }
