@@ -433,10 +433,13 @@ func isValidChunkType(ctx context.Context, pool *pgxpool.Pool, orgID string, chu
 	return count > 0, nil
 }
 
-// validateCustomFields validates custom_fields against the chunk type's custom_fields definition.
-func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string, chunkType string, customFields map[string]any) error {
-	if len(customFields) == 0 {
-		return nil
+// validateCustomFields validates custom_fields against the chunk type's definition
+// and auto-populates defaults for missing required fields.
+// Returns the effective custom_fields with defaults applied, or an error.
+func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string, chunkType string, customFields map[string]any) (map[string]any, error) {
+	effective := make(map[string]any)
+	for k, v := range customFields {
+		effective[k] = v
 	}
 
 	var fieldDefs []models.CustomFieldDefinition
@@ -447,7 +450,7 @@ func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string,
 		LIMIT 1
 	`, chunkType, orgID).Scan(&fieldDefs)
 	if err != nil {
-		return fmt.Errorf("chunk type not found: %w", err)
+		return nil, fmt.Errorf("chunk type not found: %w", err)
 	}
 
 	providedKeys := make(map[string]bool)
@@ -458,13 +461,16 @@ func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string,
 	for _, field := range fieldDefs {
 		if field.Required && field.Default == nil {
 			if !providedKeys[field.Key] {
-				return fmt.Errorf("required field %q is missing", field.Key)
+				return nil, fmt.Errorf("required field %q is missing", field.Key)
 			}
 		}
-		if providedKeys[field.Key] {
-			val := customFields[field.Key]
+		if field.Required && field.Default != nil && !providedKeys[field.Key] {
+			effective[field.Key] = field.Default
+		}
+		if providedKeys[field.Key] || (field.Required && field.Default != nil) {
+			val := effective[field.Key]
 			if err := validateFieldValue(field, val); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
@@ -478,11 +484,11 @@ func validateCustomFields(ctx context.Context, pool *pgxpool.Pool, orgID string,
 			}
 		}
 		if !found {
-			return fmt.Errorf("unknown field %q", k)
+			return nil, fmt.Errorf("unknown field %q", k)
 		}
 	}
 
-	return nil
+	return effective, nil
 }
 
 func validateFieldValue(field models.CustomFieldDefinition, value any) error {
@@ -655,8 +661,13 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	}
 
 	// Validate custom_fields against chunk type definition
-	if err := validateCustomFields(ctx, pool(t), orgID, chunkType, in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	effectiveCustomFields := in.CustomFields
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgID, chunkType, in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
 	}
 
 	contentJSON := encodeContent(in.Content)
@@ -676,7 +687,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 	`, nullStr(projectID), scope, nullStr(in.AgentID), nullStr(in.OrgID),
 		nullInjectAudience(effectiveInjectAudience), vis, chunkType,
 		in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -699,7 +710,7 @@ func (t *Tools) WriteContext(ctx context.Context, projectID string, in WriteCont
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1399,8 +1410,15 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 	}
 
 	// Validate custom_fields against chunk type definition
-	if err := validateCustomFields(ctx, pool(t), "", "IDENTITY", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), "", "IDENTITY", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1425,7 +1443,7 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 		VALUES (NULL, $1, $2, NULL, $3, $4, 'IDENTITY', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1448,7 +1466,7 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1470,8 +1488,15 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 	}
 
 	// Validate custom_fields against chunk type definition
-	if err := validateCustomFields(ctx, pool(t), "", "MEMORY", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), "", "MEMORY", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1496,7 +1521,7 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 		VALUES (NULL, $1, $2, NULL, $3, $4, 'MEMORY', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1519,7 +1544,7 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1554,8 +1579,15 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 	if orgID != nil {
 		orgIDStr = *orgID
 	}
-	if err := validateCustomFields(ctx, pool(t), orgIDStr, "KNOWLEDGE", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgIDStr, "KNOWLEDGE", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1580,7 +1612,7 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 		VALUES ($1, $2, NULL, NULL, $3, $4, 'KNOWLEDGE', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1603,7 +1635,7 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1638,8 +1670,15 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 	if orgID != nil {
 		orgIDStr = *orgID
 	}
-	if err := validateCustomFields(ctx, pool(t), orgIDStr, "CONVENTION", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgIDStr, "CONVENTION", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1664,7 +1703,7 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 		VALUES ($1, $2, NULL, NULL, $3, $4, 'CONVENTION', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1687,7 +1726,7 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1709,8 +1748,15 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 	}
 
 	// Validate custom_fields against chunk type definition
-	if err := validateCustomFields(ctx, pool(t), orgID, "KNOWLEDGE", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgID, "KNOWLEDGE", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1735,7 +1781,7 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'KNOWLEDGE', $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, orgID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1758,7 +1804,7 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1784,8 +1830,15 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 	}
 
 	// Validate custom_fields against chunk type definition
-	if err := validateCustomFields(ctx, pool(t), orgID, "PRINCIPLE", in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgID, "PRINCIPLE", in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
@@ -1810,7 +1863,7 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'PRINCIPLE', $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, orgID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1833,7 +1886,7 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1869,8 +1922,15 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 	if orgID != nil {
 		orgIDStr = *orgID
 	}
-	if err := validateCustomFields(ctx, pool(t), orgIDStr, in.Type, in.CustomFields); err != nil {
-		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	var effectiveCustomFields map[string]any
+	if len(in.CustomFields) > 0 {
+		effective, err := validateCustomFields(ctx, pool(t), orgIDStr, in.Type, in.CustomFields)
+		if err != nil {
+			return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+		}
+		effectiveCustomFields = effective
+	} else {
+		effectiveCustomFields = in.CustomFields
 	}
 
 	// Resolve scope — override wins, else table default
@@ -1942,7 +2002,7 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 	`, effectiveProjectID, effectiveScope, effectiveAgentID, effectiveOrgID,
 		nullInjectAudience(effectiveInjectAudience), vis, in.Type,
 		in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(effectiveCustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1965,7 +2025,7 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
-		CustomFields: in.CustomFields,
+		CustomFields: effectiveCustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
