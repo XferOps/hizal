@@ -42,6 +42,7 @@ type WriteIdentityInput struct {
 	Related        []string                  `json:"related,omitempty"`
 	InjectAudience *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility     string                    `json:"visibility,omitempty"`
+	CustomFields   map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type WriteMemoryInput struct {
@@ -55,6 +56,7 @@ type WriteMemoryInput struct {
 	Related        []string                  `json:"related,omitempty"`
 	InjectAudience *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility     string                    `json:"visibility,omitempty"`
+	CustomFields   map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type WriteKnowledgeInput struct {
@@ -68,6 +70,7 @@ type WriteKnowledgeInput struct {
 	Related        []string                  `json:"related,omitempty"`
 	InjectAudience *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility     string                    `json:"visibility,omitempty"`
+	CustomFields   map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type WriteConventionInput struct {
@@ -81,6 +84,7 @@ type WriteConventionInput struct {
 	Related        []string                  `json:"related,omitempty"`
 	InjectAudience *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility     string                    `json:"visibility,omitempty"`
+	CustomFields   map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type WriteOrgKnowledgeInput struct {
@@ -94,6 +98,7 @@ type WriteOrgKnowledgeInput struct {
 	Related        []string                  `json:"related,omitempty"`
 	InjectAudience *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility     string                    `json:"visibility,omitempty"`
+	CustomFields   map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type StorePrincipleInput struct {
@@ -108,6 +113,7 @@ type StorePrincipleInput struct {
 	Related          []string                  `json:"related,omitempty"`
 	InjectAudience   *models.InjectAudience    `json:"inject_audience,omitempty"`
 	Visibility       string                    `json:"visibility,omitempty"`
+	CustomFields     map[string]any            `json:"custom_fields,omitempty"`
 }
 
 type WriteChunkInput struct {
@@ -125,6 +131,7 @@ type WriteChunkInput struct {
 	Gotchas         []string         `json:"gotchas,omitempty"`
 	Related         []string         `json:"related,omitempty"`
 	Visibility      string           `json:"visibility,omitempty"`
+	CustomFields    map[string]any   `json:"custom_fields,omitempty"`
 }
 
 // computeFreshness returns a score multiplier in [FreshnessMin, 1.0] based on
@@ -723,7 +730,7 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 
 	// last_review_at: most recent review date, or updated_at if no reviews exist.
 	const browseColsTemplate = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
-			cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+			cc.source_lines, cc.gotchas, cc.related, cc.custom_fields, cc.created_by_agent, cc.created_at, cc.updated_at,
 			COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
 			NULL::float8 AS score,
 			COALESCE(
@@ -733,7 +740,7 @@ func (t *Tools) SearchContext(ctx context.Context, projectID string, in SearchCo
 			cc.visibility`
 
 	const searchColsTemplate = `cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
-			cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+			cc.source_lines, cc.gotchas, cc.related, cc.custom_fields, cc.created_by_agent, cc.created_at, cc.updated_at,
 			COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
 			COALESCE(1 - (cc.embedding <=> $1), 0) AS score,
 			COALESCE(
@@ -875,7 +882,7 @@ func (t *Tools) ReadContext(ctx context.Context, projectID string, in ReadContex
 	query := `
 		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.inject_audience, cc.visibility, cc.chunk_type,
 		       cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file, cc.source_lines,
-		       cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+		       cc.gotchas, cc.related, cc.custom_fields, cc.created_by_agent, cc.created_at, cc.updated_at,
 		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version
 		FROM context_chunks cc
 	`
@@ -994,7 +1001,7 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, orgID string, in List
 	query := fmt.Sprintf(`
 		SELECT cc.id, cc.project_id, cc.scope, cc.agent_id, cc.org_id, cc.inject_audience, cc.visibility, cc.chunk_type,
 		       cc.query_key, cc.title, cc.content, NULL::text AS embedding, cc.source_file, cc.source_lines,
-		       cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+		       cc.gotchas, cc.related, cc.custom_fields, cc.created_by_agent, cc.created_at, cc.updated_at,
 		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version
 		FROM context_chunks cc
 		WHERE %s
@@ -1218,7 +1225,7 @@ func (t *Tools) CompactContext(ctx context.Context, projectID string, in Compact
 
 	query := fmt.Sprintf(`
 		SELECT cc.id, cc.project_id, cc.query_key, cc.title, cc.content, cc.embedding::text, cc.source_file,
-		       cc.source_lines, cc.gotchas, cc.related, cc.created_by_agent, cc.created_at, cc.updated_at,
+		       cc.source_lines, cc.gotchas, cc.related, cc.custom_fields, cc.created_by_agent, cc.created_at, cc.updated_at,
 		       COALESCE((SELECT MAX(version) FROM context_versions WHERE chunk_id = cc.id), 1) AS version,
 		       COALESCE(1 - (cc.embedding <=> $1), 0) AS score,
 		       cc.visibility
@@ -1391,6 +1398,11 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	if err := validateCustomFields(ctx, pool(t), "", "IDENTITY", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1409,11 +1421,11 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, $1, $2, NULL, $3, $4, 'IDENTITY', $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES (NULL, $1, $2, NULL, $3, $4, 'IDENTITY', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1436,6 +1448,7 @@ func (t *Tools) WriteIdentity(ctx context.Context, in WriteIdentityInput) (*Writ
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1456,6 +1469,11 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	if err := validateCustomFields(ctx, pool(t), "", "MEMORY", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1474,11 +1492,11 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, $1, $2, NULL, $3, $4, 'MEMORY', $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES (NULL, $1, $2, NULL, $3, $4, 'MEMORY', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, defaults.DefaultScope, in.AgentID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1501,6 +1519,7 @@ func (t *Tools) WriteMemory(ctx context.Context, in WriteMemoryInput) (*WriteCon
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1530,6 +1549,15 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	orgIDStr := ""
+	if orgID != nil {
+		orgIDStr = *orgID
+	}
+	if err := validateCustomFields(ctx, pool(t), orgIDStr, "KNOWLEDGE", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1548,11 +1576,11 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES ($1, $2, NULL, NULL, $3, $4, 'KNOWLEDGE', $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, $2, NULL, NULL, $3, $4, 'KNOWLEDGE', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1575,6 +1603,7 @@ func (t *Tools) WriteKnowledge(ctx context.Context, projectID string, in WriteKn
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1604,6 +1633,15 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	orgIDStr := ""
+	if orgID != nil {
+		orgIDStr = *orgID
+	}
+	if err := validateCustomFields(ctx, pool(t), orgIDStr, "CONVENTION", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1622,11 +1660,11 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES ($1, $2, NULL, NULL, $3, $4, 'CONVENTION', $5, $6, $7, $8, $9, $10, $11, $12)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, $2, NULL, NULL, $3, $4, 'CONVENTION', $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id, created_at
 	`, projectID, defaults.DefaultScope, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1649,6 +1687,7 @@ func (t *Tools) WriteConvention(ctx context.Context, projectID string, in WriteC
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1669,6 +1708,11 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	if err := validateCustomFields(ctx, pool(t), orgID, "KNOWLEDGE", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1687,11 +1731,11 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'KNOWLEDGE', $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'KNOWLEDGE', $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, orgID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1714,6 +1758,7 @@ func (t *Tools) WriteOrgKnowledge(ctx context.Context, orgID string, in WriteOrg
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1738,6 +1783,11 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 		return nil, fmt.Errorf("resolve chunk type defaults: %w", err)
 	}
 
+	// Validate custom_fields against chunk type definition
+	if err := validateCustomFields(ctx, pool(t), orgID, "PRINCIPLE", in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
+	}
+
 	effectiveIA := effectiveInjectAudience(in.InjectAudience, defaults.DefaultInjectAudience)
 	vis := normalizeVisibility(in.Visibility)
 
@@ -1756,11 +1806,11 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'PRINCIPLE', $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES (NULL, 'ORG', NULL, $1, $2, $3, 'PRINCIPLE', $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at
 	`, orgID, nullInjectAudience(effectiveIA), vis, in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1783,6 +1833,7 @@ func (t *Tools) StorePrinciple(ctx context.Context, orgID string, in StorePrinci
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -1811,6 +1862,15 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 	defaults, err := resolveChunkTypeDefaults(ctx, pool(t), orgID, in.Type)
 	if err != nil {
 		return nil, fmt.Errorf("INVALID_CHUNK_TYPE: %q is not a valid chunk type for this org", in.Type)
+	}
+
+	// Validate custom_fields against chunk type definition
+	orgIDStr := ""
+	if orgID != nil {
+		orgIDStr = *orgID
+	}
+	if err := validateCustomFields(ctx, pool(t), orgIDStr, in.Type, in.CustomFields); err != nil {
+		return nil, fmt.Errorf("custom_fields validation failed: %w", err)
 	}
 
 	// Resolve scope — override wins, else table default
@@ -1876,13 +1936,13 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 	var id string
 	var createdAt time.Time
 	err = pool(t).QueryRow(ctx, `
-		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		INSERT INTO context_chunks (project_id, scope, agent_id, org_id, inject_audience, visibility, chunk_type, query_key, title, content, embedding, source_file, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		RETURNING id, created_at
 	`, effectiveProjectID, effectiveScope, effectiveAgentID, effectiveOrgID,
 		nullInjectAudience(effectiveInjectAudience), vis, in.Type,
 		in.QueryKey, in.Title, contentJSON, vec,
-		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON).
+		nullStr(in.SourceFile), sourceLinesJSON, gotchasJSON, relatedJSON, nullJSON(in.CustomFields)).
 		Scan(&id, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert chunk: %w", err)
@@ -1905,6 +1965,7 @@ func (t *Tools) WriteChunk(ctx context.Context, projectID string, in WriteChunkI
 		QueryKey:     in.QueryKey,
 		Title:        in.Title,
 		Visibility:   vis,
+		CustomFields: in.CustomFields,
 		CreatedAt:    createdAt,
 	}, nil
 }
@@ -2153,6 +2214,7 @@ func scanChunkReadRow(row pgxScanner) (models.ContextChunk, int, error) {
 		&chunk.SourceLines,
 		&chunk.Gotchas,
 		&chunk.Related,
+		&chunk.CustomFields,
 		&chunk.CreatedByAgent,
 		&chunk.CreatedAt,
 		&chunk.UpdatedAt,
@@ -2186,6 +2248,7 @@ func scanChunkResultRow(row pgxScanner) (models.ContextChunk, int, float64, erro
 		&chunk.SourceLines,
 		&chunk.Gotchas,
 		&chunk.Related,
+		&chunk.CustomFields,
 		&chunk.CreatedByAgent,
 		&chunk.CreatedAt,
 		&chunk.UpdatedAt,
@@ -2222,6 +2285,7 @@ func scanChunkSearchRow(row pgxScanner) (models.ContextChunk, int, float64, time
 		&chunk.SourceLines,
 		&chunk.Gotchas,
 		&chunk.Related,
+		&chunk.CustomFields,
 		&chunk.CreatedByAgent,
 		&chunk.CreatedAt,
 		&chunk.UpdatedAt,
