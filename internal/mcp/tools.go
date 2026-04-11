@@ -2044,7 +2044,7 @@ func nullStr(s string) interface{} {
 
 func nullJSON(m map[string]any) interface{} {
 	if m == nil || len(m) == 0 {
-		return nil
+		return []byte("{}")
 	}
 	return m
 }
