@@ -1983,10 +1983,17 @@ func nullStr(s string) interface{} {
 }
 
 func nullJSON(m map[string]any) interface{} {
-	if m == nil || len(m) == 0 {
+	if m == nil {
 		return nil
 	}
-	return m
+	if len(m) == 0 {
+		return "{}" // empty map → JSON string "{}", not SQL NULL
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return string(b)
 }
 
 func resolveInjectAudience(raw *json.RawMessage) *models.InjectAudience {
