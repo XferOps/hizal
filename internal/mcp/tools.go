@@ -1785,6 +1785,22 @@ func nullInjectAudience(ia *models.InjectAudience) interface{} {
 	return string(b)
 }
 
+// nullJSON returns nil for nil maps, {} for empty maps (not SQL NULL),
+// and the JSON string for non-empty maps.
+func nullJSON(m map[string]any) interface{} {
+	if m == nil {
+		return nil
+	}
+	if len(m) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return string(b)
+}
+
 func joinClauses(clauses []string) string {
 	result := ""
 	for i, c := range clauses {
