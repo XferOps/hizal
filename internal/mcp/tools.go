@@ -960,44 +960,14 @@ func (t *Tools) ListChunks(ctx context.Context, projectID, orgID string, in List
 		sortCol = "cc.created_at"
 	}
 
-	filterClauses := []string{}
 	args := []interface{}{}
-	argIdx := 1
-
-	if projectID != "" {
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.project_id = $%d", argIdx))
-		args = append(args, projectID)
-		argIdx++
+	scopeClause, args := scopeFilter(in.Scope, projectID, in.AgentID, orgID, args)
+	typeClause, args := chunkTypeFilter(in.ChunkType, args)
+	customFieldsClause, args, err := customFieldsFilter(in.CustomFields, args)
+	if err != nil {
+		return nil, fmt.Errorf("list chunks custom_fields: %w", err)
 	}
-
-	if in.AgentID != "" {
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.agent_id = $%d", argIdx))
-		args = append(args, in.AgentID)
-		argIdx++
-	}
-
-	if orgID != "" {
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.org_id = $%d", argIdx))
-		args = append(args, orgID)
-		argIdx++
-	}
-
-	if in.ChunkType != "" {
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.chunk_type = $%d", argIdx))
-		args = append(args, in.ChunkType)
-		argIdx++
-	}
-
-	if in.Scope != "" {
-		filterClauses = append(filterClauses, fmt.Sprintf("cc.scope = $%d", argIdx))
-		args = append(args, in.Scope)
-		argIdx++
-	}
-
-	whereClause := "TRUE"
-	if len(filterClauses) > 0 {
-		whereClause = strings.Join(filterClauses, " AND ")
-	}
+	whereClause := fmt.Sprintf("TRUE %s %s %s", scopeClause, typeClause, customFieldsClause)
 
 	// Count total matching rows (before pagination)
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM context_chunks cc WHERE %s`, whereClause)
@@ -2155,6 +2125,18 @@ func chunkTypeFilter(chunkType string, args []interface{}) (string, []interface{
 	}
 	args = append(args, chunkType)
 	return fmt.Sprintf("AND cc.chunk_type = $%d", len(args)), args
+}
+
+func customFieldsFilter(customFields map[string]any, args []interface{}) (string, []interface{}, error) {
+	if len(customFields) == 0 {
+		return "", args, nil
+	}
+	payload, err := json.Marshal(customFields)
+	if err != nil {
+		return "", args, err
+	}
+	args = append(args, payload)
+	return fmt.Sprintf("AND COALESCE(cc.custom_fields, '{}'::jsonb) @> $%d::jsonb", len(args)), args, nil
 }
 
 // alwaysInjectFilter returns a WHERE clause fragment for always_inject filtering.
