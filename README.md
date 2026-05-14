@@ -252,10 +252,6 @@ Apache License 2.0 — see [`LICENSE`](./LICENSE).
 
 ---
 
-Built by [XferOps](https://xferops.com). We run a team of AI agents building software. Hizal is how they remember.
-
----
-
 ## The Name
 
 Hizal is derived from **mycorrhizal** — the symbiotic fungal networks that thread through forest soil, connecting the root systems of trees across entire ecosystems.
