@@ -783,6 +783,151 @@ func TestReadContextByQueryKey(t *testing.T) {
 	})
 }
 
+func TestListChunksScopeAwareAccessibility(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New() error = %v", err)
+	}
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("pool.Ping() error = %v", err)
+	}
+
+	tools := &Tools{pool: pool, embed: nil}
+
+	orgID := uuid.NewString()
+	orgSlug := "list-chunks-org-" + strings.ToLower(uuid.NewString())
+	userID := uuid.NewString()
+	projectID := uuid.NewString()
+	projectSlug := "list-chunks-project-" + strings.ToLower(uuid.NewString())
+	agentID := uuid.NewString()
+	agentSlug := "list-chunks-agent-" + strings.ToLower(uuid.NewString())
+	projectChunkID := uuid.NewString()
+	agentChunkID := uuid.NewString()
+	orgChunkID := uuid.NewString()
+
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM context_chunks WHERE id = ANY($1::uuid[])`, []string{projectChunkID, agentChunkID, orgChunkID})
+		_, _ = pool.Exec(ctx, `DELETE FROM agents WHERE id = $1`, agentID)
+		_, _ = pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, projectID)
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID)
+		_, _ = pool.Exec(ctx, `DELETE FROM orgs WHERE id = $1`, orgID)
+	})
+
+	if _, err := pool.Exec(ctx, `INSERT INTO orgs (id, name, slug) VALUES ($1, $2, $3)`, orgID, "List Chunks Test Org", orgSlug); err != nil {
+		t.Fatalf("insert org: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO users (id, email, name) VALUES ($1, $2, $3)`, userID, "list-chunks-"+uuid.NewString()+"@example.com", "List Chunks Test User"); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO projects (id, org_id, name, slug) VALUES ($1, $2, $3, $4)`, projectID, orgID, "List Chunks Test Project", projectSlug); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO agents (id, org_id, owner_id, name, slug, type, status)
+		VALUES ($1, $2, $3, $4, $5, 'CODER', 'ACTIVE')
+	`, agentID, orgID, userID, "List Chunks Test Agent", agentSlug); err != nil {
+		t.Fatalf("insert agent: %v", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO context_chunks (id, project_id, org_id, scope, chunk_type, query_key, title, content, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, $2, NULL, 'PROJECT', 'KNOWLEDGE', $3, $4, $5::jsonb, 'null'::jsonb, '[]'::jsonb, '[]'::jsonb, $6::jsonb)
+	`, projectChunkID, projectID, "project-visible", "Project Visible", string(encodeContent("project chunk")), `{"kind":"project"}`); err != nil {
+		t.Fatalf("insert project chunk: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO context_chunks (id, project_id, agent_id, org_id, scope, chunk_type, query_key, title, content, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, NULL, $2, NULL, 'AGENT', 'MEMORY', $3, $4, $5::jsonb, 'null'::jsonb, '[]'::jsonb, '[]'::jsonb, $6::jsonb)
+	`, agentChunkID, agentID, "agent-visible", "Agent Visible", string(encodeContent("agent chunk")), `{"kind":"agent"}`); err != nil {
+		t.Fatalf("insert agent chunk: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO context_chunks (id, project_id, org_id, scope, chunk_type, query_key, title, content, source_lines, gotchas, related, custom_fields)
+		VALUES ($1, NULL, $2, 'ORG', 'PRINCIPLE', $3, $4, $5::jsonb, 'null'::jsonb, '[]'::jsonb, '[]'::jsonb, $6::jsonb)
+	`, orgChunkID, orgID, "org-visible", "Org Visible", string(encodeContent("org chunk")), `{"kind":"org"}`); err != nil {
+		t.Fatalf("insert org chunk: %v", err)
+	}
+
+	checkKeys := func(t *testing.T, got []ChunkResult, want ...string) {
+		t.Helper()
+		gotSet := map[string]bool{}
+		for _, chunk := range got {
+			gotSet[chunk.QueryKey] = true
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d chunks (%v), want %d", len(got), gotSet, len(want))
+		}
+		for _, key := range want {
+			if !gotSet[key] {
+				t.Fatalf("missing query_key %q in %v", key, gotSet)
+			}
+		}
+	}
+
+	t.Run("default scope returns all accessible scopes", func(t *testing.T) {
+		result, err := tools.ListChunks(ctx, projectID, orgID, ListChunksInput{AgentID: agentID, Limit: 10})
+		if err != nil {
+			t.Fatalf("ListChunks() error = %v", err)
+		}
+		if result.Total != 3 {
+			t.Fatalf("total = %d, want 3", result.Total)
+		}
+		checkKeys(t, result.Chunks, "project-visible", "agent-visible", "org-visible")
+	})
+
+	t.Run("explicit AGENT scope ignores org and project filters", func(t *testing.T) {
+		result, err := tools.ListChunks(ctx, projectID, orgID, ListChunksInput{AgentID: agentID, Scope: "AGENT", Limit: 10})
+		if err != nil {
+			t.Fatalf("ListChunks() error = %v", err)
+		}
+		if result.Total != 1 {
+			t.Fatalf("total = %d, want 1", result.Total)
+		}
+		checkKeys(t, result.Chunks, "agent-visible")
+	})
+
+	t.Run("explicit PROJECT scope returns project chunks", func(t *testing.T) {
+		result, err := tools.ListChunks(ctx, projectID, orgID, ListChunksInput{AgentID: agentID, Scope: "PROJECT", Limit: 10})
+		if err != nil {
+			t.Fatalf("ListChunks() error = %v", err)
+		}
+		if result.Total != 1 {
+			t.Fatalf("total = %d, want 1", result.Total)
+		}
+		checkKeys(t, result.Chunks, "project-visible")
+	})
+
+	t.Run("explicit ORG scope returns org chunks", func(t *testing.T) {
+		result, err := tools.ListChunks(ctx, projectID, orgID, ListChunksInput{AgentID: agentID, Scope: "ORG", Limit: 10})
+		if err != nil {
+			t.Fatalf("ListChunks() error = %v", err)
+		}
+		if result.Total != 1 {
+			t.Fatalf("total = %d, want 1", result.Total)
+		}
+		checkKeys(t, result.Chunks, "org-visible")
+	})
+
+	t.Run("custom_fields filter does exact jsonb containment", func(t *testing.T) {
+		result, err := tools.ListChunks(ctx, projectID, orgID, ListChunksInput{AgentID: agentID, CustomFields: map[string]any{"kind": "agent"}, Limit: 10})
+		if err != nil {
+			t.Fatalf("ListChunks() error = %v", err)
+		}
+		if result.Total != 1 {
+			t.Fatalf("total = %d, want 1", result.Total)
+		}
+		checkKeys(t, result.Chunks, "agent-visible")
+	})
+}
+
 func TestWriteChunk_InjectAudienceOverride(t *testing.T) {
 	t.Parallel()
 
