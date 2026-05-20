@@ -6,15 +6,11 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white)](go.mod)
 
----
+Hizal exposes both REST and MCP (HTTP+SSE), giving agents a structured way to write what they learn. Future sessions can reuse that knowledge instead of starting from scratch, and context is deterministically injected instead of evaporating.
 
 🧪 Try it: [hizal.ai](https://hizal.ai)
 
 > You remember the work you do and learn from your mistakes. Why should your AI agents be any different?
-
-## Introduction
-
-The Hizal (mycorrhizal) Go API exposes both REST and MCP (HTTP+SSE), giving agents a structured way to write what they learn. Future sessions can reuse that knowledge instead of starting from scratch. Context is deterministically injected instead of evaporating.
 
 ### Context Scopes
 
