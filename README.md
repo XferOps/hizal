@@ -1,19 +1,20 @@
 # Hizal
 
-**A semantic memory layer that doesn't just store what agents know — it modulates how they think.**
+**A semantic memory layer for AI agents with scoped ownership and deterministic context injection.**
 
-[![CI](https://github.com/XferOps/hizal/actions/workflows/ci.yml/badge.svg)](https://github.com/XferOps/hizal/actions/workflows/ci.yml)
+[![CI](https://github.com/parkerscobey/hizal/actions/workflows/ci.yml/badge.svg)](https://github.com/parkerscobey/hizal/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/go-1.24-00ADD8?logo=go&logoColor=white)](go.mod)
 
 ---
 
-🧪 Try it: [hizal.ai](https://hizal.ai) • 🚧 TUI (coming soon): [hizal-tui](https://github.com/parkerscobey/hizal-tui)
+🧪 Try it: [hizal.ai](https://hizal.ai)
 
-> You remember the work you do and learn from your mistakes. Why should your AI Agents be any different?
+> You remember the work you do and learn from your mistakes. Why should your AI agents be any different?
 
 ## Introduction
 
-The Hizal (mycorrhizal) Go API exposes both REST and MCP (HTTP+SSE) that gives any agent the ability to write what they learn. Future agent sessions reuse the stored knowledge. Context is deterministically injected instead of evaporating.
+The Hizal (mycorrhizal) Go API exposes both REST and MCP (HTTP+SSE), giving agents a structured way to write what they learn. Future sessions can reuse that knowledge instead of starting from scratch. Context is deterministically injected instead of evaporating.
 
 ### Context Scopes
 
