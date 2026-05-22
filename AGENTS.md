@@ -7,50 +7,29 @@ Hizal is both the product you're building and the memory system you use to build
 
 ---
 
-## Your First Three Steps (always, no exceptions)
-
-1. **Start a Hizal session**
-2. **Read the task spec from Forge MCP (Hizal project_id `cmmhg1y1f0001le01gkx2a3sk`)**
-3. **Search Hizal for existing context on the task**
-
-Only then start writing code.
-
----
-
-## 1. Start a Hizal Session
+## Hizal Context System
 
 Every dev session starts and ends with Hizal.
 
-```
-start_session(lifecycle_slug="dev")
-```
+Use the Hizal skills (in `skills/`):
 
-This returns a `session_id`. Keep it visible — you'll need it for `register_focus` and `end_session`.
+1. **Start** → `hizal-start` skill — begin session, register focus
+2. **Read the spec** → see "Task Specs" below
+3. **Search** → `hizal-search` skill — find existing context before building
+4. **Write** → `hizal-write` skill — persist decisions as you build
+5. **End** → `hizal-end` skill — close session, review surfaced chunks
 
-Then register what you're working on:
+### Project-Specific Context
 
-```
-register_focus(
-  session_id="<session-id>",
-  task="HIZAL-XX: <ticket title>",
-  project_id="<project-id>"
-)
-```
+- **Lifecycle slug:** `dev`
+- **Hizal project ID:** `d93a8d80-c6e6-43ea-b871-528e3399db3a`
+- **Forge project ID:** `cmmhg1y1f0001le01gkx2a3sk`
 
-### Session Recovery
-
-If you lose your `session_id` (context reset, compaction):
-
-```
-get_active_session()
-```
-
-- `status="active"` → use the returned `session_id`, call `resume_session` to extend TTL
-- `status="none"` → call `start_session` to begin fresh
+Pass these to the Hizal skills when starting sessions and writing chunks.
 
 ---
 
-## 2. Read the Task Spec
+## Task Specs
 
 **In our setup**, specs come from Forge via the forge MCP:
 
@@ -62,68 +41,7 @@ Hizal Forge tickets live in project `cmmhg1y1f0001le01gkx2a3sk` and use the `HIZ
 If direct search by full ticket id fails, search within that project by number or title, or list tasks
 for that project and locate the ticket there.
 
-The ticket description is the spec. Read it fully before moving to step 3.
-
----
-
-## 3. Search Hizal for Existing Context
-
-Now that you know what you're building, search Hizal broadly first, then narrow if needed.
-
-`search_context` can search across all accessible scopes by default:
-
-- `AGENT` — your personal memory and prior investigations
-- `PROJECT` — Back Office knowledge and conventions
-- `ORG` — org-wide standards and principles
-
-Start with 2-3 broad searches using different phrasings:
-
-```
-search_context(query="<key concept from the spec>")
-search_context(query="<ticket id or feature name>")
-search_context(query="<related subsystem or endpoint>")
-```
-
-Then narrow when you need a specific layer of context:
-
-```
-# Project-specific knowledge and conventions
-search_context(
-  query="<key concept from the spec>",
-  project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a",
-  scope="PROJECT"
-)
-
-# Prior agent memory / investigation notes
-search_context(
-  query="<key concept from the spec>",
-  scope="AGENT",
-  chunk_type="MEMORY"
-)
-
-# Org-wide principles and standards
-search_context(
-  query="<key concept from the spec>",
-  scope="ORG"
-)
-```
-
-If you know the exact saved item you're looking for, search by `query_key`.
-
-Examples:
-
-```
-search_context(query="<key concept from the spec>", project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a")
-search_context(query_key="<exact-query-key>", project_id="d93a8d80-c6e6-43ea-b871-528e3399db3a")
-```
-
-Run 2-3 searches with different phrasings. Read the returned chunks — they contain
-architecture decisions, conventions, and prior work that must inform your implementation.
-
-If an `AGENT` memory chunk turns out to be broadly useful for the team, promote it later by
-writing it back as `write_knowledge` or `write_convention`.
-
-Don't rediscover what the team already decided.
+The ticket description is the spec. Read it fully before writing code.
 
 ---
 
@@ -172,22 +90,6 @@ go test ./... -race -timeout 60s
 
 ---
 
-## Write to Hizal As You Build
-
-This is not optional. Write chunks as you make decisions — not just at the end.
-
-| What you're writing | Tool | Scope |
-|---------------------|------|-------|
-| Architecture or design decision | `write_knowledge` | PROJECT |
-| Convention this codebase follows | `write_convention` | PROJECT (always_inject) |
-| Something personal you learned | `write_memory` | AGENT |
-
-**Do not use `write_context`** — it's deprecated. Use the purpose-built tools above.
-
-Write one chunk per meaningful decision. Don't batch everything into one chunk at the end.
-
----
-
 ## Open the PR
 
 **Your session is not complete until a PR exists.** Tests passing and code written is not done.
@@ -210,23 +112,6 @@ After pushing fixes to address review feedback, **re-request review**:
 gh api repos/parkerscobey/hizal/pulls/<PR#>/requested_reviewers \
   -X POST -f 'reviewers[]=parkerscobey'
 ```
-
----
-
-## End Your Session
-
-After the PR is open and the Forge spec is updated:
-
-```
-end_session(session_id="<session-id>")
-```
-
-Review the returned MEMORY chunks. For each one, decide:
-- **Keep** — useful personal observation, leave as AGENT memory
-- **Promote** — valuable for the team, call `write_knowledge` with the content
-- **Discard** — noise, ignore it
-
-This is how knowledge compounds across agents and sessions.
 
 ---
 
